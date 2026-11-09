@@ -22,6 +22,9 @@ export const TITLES = [
   { id: 'swap', name: 'SWAPSHOP', color: '#6aa84f' },
   { id: 'picnic', name: 'PICNIC', color: '#9cc25a' },
   { id: 'vending', name: '24/7 VENDING', color: '#6b7a8a' },
+  { id: 'toilet', name: 'TOILET', color: '#3fa7b5' },
+  // `clear: true` makes the garage see-through in the model.
+  { id: 'between', name: 'IN-BETWEEN SPACE', color: '#8fbfd8', clear: true },
 ]
 export const TITLE = Object.fromEntries(TITLES.map((t) => [t.id, t]))
 export const EMPTY_COLOR = '#dcd8cf'

@@ -124,50 +124,71 @@ function shapes(block) {
   })
 }
 
+// Solid garages, their doors, and see-through garages (titles marked `clear`) are three separate sets.
 function Garages({ title, block, picked, onPick }) {
   const body = useRef()
   const door = useRef()
+  const glass = useRef()
   const placed = useMemo(() => shapes(block), [block])
+  const lists = useMemo(() => {
+    const solid = []
+    const clear = []
+    GARAGES.forEach((g, i) => (TITLE[title[g.id]]?.clear ? clear : solid).push(i))
+    return { solid, clear }
+  }, [title])
   useLayoutEffect(() => {
-    GARAGES.forEach((g, i) => {
-      const s = placed[i]
+    const put = (mesh, list, fn) => {
+      list.forEach((i, k) => {
+        fn(GARAGES[i], placed[i])
+        dummy.updateMatrix()
+        mesh.setMatrixAt(k, dummy.matrix)
+        mesh.setColorAt(k, tint)
+      })
+      mesh.count = list.length
+      mesh.instanceMatrix.needsUpdate = true
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+      mesh.computeBoundingSphere()
+    }
+    const colour = (g) => {
       const t = title[g.id]
       tint.set(t ? TITLE[t].color : EMPTY_COLOR)
       if (picked.has(g.id)) tint.lerp(PICK, 0.55)
+    }
+    const shape = (g, s) => {
+      colour(g)
       dummy.position.set(s.x, MODULE.height / 2, -s.y)
       dummy.rotation.set(0, g.angle, 0)
       dummy.scale.set(s.w, MODULE.height, s.d)
-      dummy.updateMatrix()
-      body.current.setMatrixAt(i, dummy.matrix)
-      body.current.setColorAt(i, tint)
-      // the door: a darker panel on the front face
-      const f = MODULE.depth / 2 + 0.03
-      dummy.position.set(g.x + g.n[0] * f, 1.2, -(g.y + g.n[1] * f))
-      dummy.scale.set(2.5, 2.4, 0.06)
-      dummy.updateMatrix()
-      door.current.setMatrixAt(i, dummy.matrix)
-      door.current.setColorAt(i, tint.multiplyScalar(0.72))
-    })
-    for (const m of [body.current, door.current]) {
-      m.instanceMatrix.needsUpdate = true
-      m.instanceColor.needsUpdate = true
-      m.computeBoundingSphere()
     }
-  }, [placed, title, picked])
-  const click = (e) => {
+    put(body.current, lists.solid, shape)
+    put(glass.current, lists.clear, shape)
+    // the door: a darker panel on the front face (see-through garages have none)
+    const f = MODULE.depth / 2 + 0.03
+    put(door.current, lists.solid, (g) => {
+      colour(g)
+      tint.multiplyScalar(0.72)
+      dummy.position.set(g.x + g.n[0] * f, 1.2, -(g.y + g.n[1] * f))
+      dummy.rotation.set(0, g.angle, 0)
+      dummy.scale.set(2.5, 2.4, 0.06)
+    })
+  }, [placed, title, picked, lists])
+  const click = (list) => (e) => {
     e.stopPropagation()
     if (e.delta > 6) return // that was a drag to turn the view, not a click
-    onPick(GARAGES[e.instanceId].id, e.shiftKey || e.ctrlKey || e.metaKey)
+    onPick(GARAGES[list[e.instanceId]].id, e.shiftKey || e.ctrlKey || e.metaKey)
   }
   const over = () => (document.body.style.cursor = 'pointer')
   const out = () => (document.body.style.cursor = '')
   return (
     <>
-      <instancedMesh ref={body} args={[box, null, GARAGES.length]} castShadow receiveShadow onClick={click} onPointerOver={over} onPointerOut={out}>
+      <instancedMesh ref={body} args={[box, null, GARAGES.length]} castShadow receiveShadow onClick={click(lists.solid)} onPointerOver={over} onPointerOut={out}>
         <meshStandardMaterial roughness={0.8} />
       </instancedMesh>
-      <instancedMesh ref={door} args={[box, null, GARAGES.length]} onClick={click}>
+      <instancedMesh ref={door} args={[box, null, GARAGES.length]} onClick={click(lists.solid)}>
         <meshStandardMaterial roughness={0.6} />
+      </instancedMesh>
+      <instancedMesh ref={glass} args={[box, null, GARAGES.length]} renderOrder={2} onClick={click(lists.clear)} onPointerOver={over} onPointerOut={out}>
+        <meshStandardMaterial transparent opacity={0.22} depthWrite={false} side={THREE.DoubleSide} roughness={0.1} />
       </instancedMesh>
     </>
   )
