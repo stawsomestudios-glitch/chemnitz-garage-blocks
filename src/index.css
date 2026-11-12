@@ -46,6 +46,14 @@ h2 { font-size: 14px; margin: 0 0 6px; }
 .dot { width: 12px; height: 12px; border-radius: 3px; flex: none; display: inline-block; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
 .dot.empty { background: #dcd8cf; }
 
+.element-actions { margin: 0 0 10px; }
+.palette { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 8px; }
+.palette button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; border: 1px dashed #bdb7aa; background: #fff; border-radius: 6px; padding: 6px 7px; cursor: grab; line-height: 1.15; }
+.palette button:hover { border-style: solid; border-color: var(--ink); }
+.palette button:active { cursor: grabbing; }
+.pname { font-size: 11.5px; font-weight: 600; }
+.palette small { font-size: 10.5px; color: var(--muted); }
+
 .rowchips { display: flex; flex-wrap: wrap; gap: 5px; }
 .rowchips button { border: 1px solid var(--line); background: #fff; border-radius: 14px; padding: 4px 10px; font-size: 12.5px; font-weight: 600; }
 .rowchips button:hover { border-color: var(--ink); }

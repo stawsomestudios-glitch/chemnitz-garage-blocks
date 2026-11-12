@@ -5,6 +5,8 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { GARAGES, BY_ID, MODULE } from './garages.js'
 import { TITLE, EMPTY_COLOR } from './titles.js'
+import { CarGarage, Elements, ViewApi } from './Elements.jsx'
+import { KINDS } from './elements.js'
 
 // Map metres (east, north) become three.js (x = east, y = up, z = south).
 const HOME = [-92, 80, -104]
@@ -133,8 +135,12 @@ function Garages({ title, block, picked, onPick }) {
   const lists = useMemo(() => {
     const solid = []
     const clear = []
-    GARAGES.forEach((g, i) => (TITLE[title[g.id]]?.clear ? clear : solid).push(i))
-    return { solid, clear }
+    const car = []
+    GARAGES.forEach((g, i) => {
+      const t = TITLE[title[g.id]]
+      ;(t?.clear ? clear : t?.car ? car : solid).push(i)
+    })
+    return { solid, clear, car }
   }, [title])
   useLayoutEffect(() => {
     const put = (mesh, list, fn) => {
@@ -181,13 +187,16 @@ function Garages({ title, block, picked, onPick }) {
   const out = () => (document.body.style.cursor = '')
   return (
     <>
-      <instancedMesh ref={body} args={[box, null, GARAGES.length]} castShadow receiveShadow onClick={click(lists.solid)} onPointerOver={over} onPointerOut={out}>
+      {lists.car.map((i) => (
+        <CarGarage key={GARAGES[i].id} g={GARAGES[i]} s={placed[i]} colour={TITLE.car.color} sel={picked.has(GARAGES[i].id)} onPick={onPick} />
+      ))}
+      <instancedMesh ref={body} args={[box, null, GARAGES.length]} userData={{ stack: true }} castShadow receiveShadow onClick={click(lists.solid)} onPointerOver={over} onPointerOut={out}>
         <meshStandardMaterial roughness={0.8} />
       </instancedMesh>
       <instancedMesh ref={door} args={[box, null, GARAGES.length]} onClick={click(lists.solid)}>
         <meshStandardMaterial roughness={0.6} />
       </instancedMesh>
-      <instancedMesh ref={glass} args={[box, null, GARAGES.length]} renderOrder={2} onClick={click(lists.clear)} onPointerOver={over} onPointerOut={out}>
+      <instancedMesh ref={glass} args={[box, null, GARAGES.length]} userData={{ stack: true }} renderOrder={2} onClick={click(lists.clear)} onPointerOver={over} onPointerOut={out}>
         <meshStandardMaterial transparent opacity={0.22} depthWrite={false} side={THREE.DoubleSide} roughness={0.1} />
       </instancedMesh>
     </>
@@ -240,7 +249,7 @@ function Camera({ view }) {
 }
 
 // One title per locked block, or per single garage. Selected ones first, so they are never hidden.
-function useItems({ title, block, picked, labels }) {
+function useItems({ title, block, picked, labels, items }) {
   return useMemo(() => {
     if (labels === 'off') return []
     const groups = new Map()
@@ -269,18 +278,36 @@ function useItems({ title, block, picked, labels }) {
         rank: (ids.some((id) => picked.has(id)) ? 0 : 3) + (isBlock ? 0 : 1) + (t ? 0 : 1),
       })
     }
-    return list.sort((a, b) => a.rank - b.rank || BY_ID[a.first].i - BY_ID[b.first].i)
-  }, [title, block, picked, labels])
+    // added blocks that have a title get a tag too
+    if (labels === 'titles')
+      for (const it of items)
+        if (it.title && TITLE[it.title]) {
+          const sel = picked.has(it.id)
+          list.push({ key: `${it.id}|${it.title}`, first: it.id, p: [it.x, it.z + 4.1, -it.y], text: TITLE[it.title].name, color: TITLE[it.title].color, block: true, sel, rank: sel ? 0 : 2, order: 999 })
+        }
+    const order = (x) => x.order ?? BY_ID[x.first].i
+    return list.sort((a, b) => a.rank - b.rank || order(a) - order(b))
+  }, [title, block, picked, labels, items])
 }
 
-export default function Scene({ site, title, block, picked, onPick, onClear, labels, view }) {
-  const items = useItems({ title, block, picked, labels })
+export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api }) {
+  const tags = useItems({ title, block, picked, labels, items })
   const refs = useRef([])
   const down = useRef([0, 0])
   return (
     <div
       className="canvas-wrap"
       onPointerDown={(e) => (down.current = [e.clientX, e.clientY])}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('text/kind')) e.preventDefault()
+      }}
+      onDrop={(e) => {
+        const kind = e.dataTransfer.getData('text/kind')
+        if (!KINDS[kind]) return
+        e.preventDefault()
+        const p = api.current?.landAt(e.clientX, e.clientY)
+        if (p) onDropKind(kind, p)
+      }}
     >
       <Canvas
         shadows
@@ -309,12 +336,14 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
         />
         <Context site={site} />
         <Garages title={title} block={block} picked={picked} onPick={onPick} />
+        <Elements items={items} picked={picked} onSelect={onSelectItem} onMove={onMoveItem} snap={snap} />
+        <ViewApi api={api} />
         <OrbitControls makeDefault target={TARGET} maxPolarAngle={Math.PI / 2.05} minDistance={6} maxDistance={600} />
         <Camera view={view} />
-        <LabelTracker items={items} refs={refs} />
+        <LabelTracker items={tags} refs={refs} />
       </Canvas>
       <div className="labels">
-        {items.map((it, i) => (
+        {tags.map((it, i) => (
           <button
             key={it.key}
             ref={(el) => (refs.current[i] = el)}

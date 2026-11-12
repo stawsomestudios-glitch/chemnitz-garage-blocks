@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Scene from './Scene.jsx'
 import { GARAGES, BY_ID, ROW_IDS, connected, label } from './garages.js'
 import { TITLES, TITLE } from './titles.js'
+import { KINDS, KIND_IDS, alignRot, snapPoint } from './elements.js'
 
 const BASE = import.meta.env.BASE_URL
 const KEY = 'chemnitz-garage-blocks-v1'
 const ALL = GARAGES.map((g) => g.id)
+const EMPTY = { title: {}, block: {}, items: [] }
+const newId = () => 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 
 // Your plan is kept in this browser so it is still there next time.
 function loadSaved() {
@@ -13,7 +16,7 @@ function loadSaved() {
     const s = JSON.parse(localStorage.getItem(KEY))
     if (s && s.title && s.block) return clean(s)
   } catch {}
-  return { title: {}, block: {} }
+  return EMPTY
 }
 function clean(s) {
   const title = {}
@@ -22,7 +25,11 @@ function clean(s) {
     if (TITLE[s.title?.[id]]) title[id] = s.title[id]
     if (s.block?.[id]) block[id] = String(s.block[id])
   }
-  return { title, block }
+  const num = (v) => (Number.isFinite(+v) ? +v : 0)
+  const items = (Array.isArray(s.items) ? s.items : [])
+    .filter((it) => it && KINDS[it.kind])
+    .map((it) => ({ id: String(it.id ?? newId()), kind: it.kind, x: num(it.x), y: num(it.y), z: num(it.z), rot: num(it.rot), ...(TITLE[it.title] && KINDS[it.kind].titled ? { title: it.title } : {}) }))
+  return { title, block, items }
 }
 function download(name, text, type) {
   const a = document.createElement('a')
@@ -41,8 +48,10 @@ export default function App() {
   const [labels, setLabels] = useState('titles')
   const [view, setView] = useState(null)
   const [note, setNote] = useState(null)
+  const [snap, setSnap] = useState(true)
   const file = useRef()
-  const { title, block } = plan
+  const api = useRef(null)
+  const { title, block, items } = plan
 
   useEffect(() => {
     fetch(`${BASE}data/site.json`)
@@ -82,9 +91,12 @@ export default function App() {
   }
 
   const sel = useMemo(() => ALL.filter((id) => picked.has(id)), [picked])
+  const selItems = items.filter((it) => picked.has(it.id))
+  const titledItems = selItems.filter((it) => KINDS[it.kind].titled)
   const selBlocks = new Set(sel.map((id) => block[id]).filter(Boolean))
-  const selTitles = new Set(sel.map((id) => title[id] ?? null))
+  const selTitles = new Set([...sel.map((id) => title[id] ?? null), ...titledItems.map((it) => it.title ?? null)])
   const shared = selTitles.size === 1 ? [...selTitles][0] : undefined
+  const canTitle = sel.length > 0 || titledItems.length > 0
 
   const setTitle = (t) => {
     const ids = withBlocks(sel)
@@ -94,8 +106,42 @@ export default function App() {
         if (t) title[id] = t
         else delete title[id]
       }
-      return { ...p, title }
+      const items = p.items.map((it) => {
+        if (!picked.has(it.id) || !KINDS[it.kind].titled) return it
+        const { title: _, ...rest } = it
+        return t ? { ...rest, title: t } : rest
+      })
+      return { ...p, title, items }
     })
+  }
+
+  // ----- added elements -----
+  const addItem = (kind, [x, y, z]) => {
+    const [sx, sy] = snap ? snapPoint(x, y) : [x, y]
+    const it = { id: newId(), kind, x: sx, y: sy, z, rot: alignRot(sx, sy) }
+    setPlan((p) => ({ ...p, items: [...p.items, it] }))
+    setPicked(new Set([it.id]))
+  }
+  const moveItem = (id, pos) => setPlan((p) => ({ ...p, items: p.items.map((it) => (it.id === id ? { ...it, ...pos } : it)) }))
+  const changeItems = (fn) => setPlan((p) => ({ ...p, items: p.items.map((it) => (picked.has(it.id) ? fn(it) : it)) }))
+  const rotate = (deg) => changeItems((it) => ({ ...it, rot: (it.rot + deg + 360) % 360 }))
+  const removeItems = () => {
+    setPlan((p) => ({ ...p, items: p.items.filter((it) => !picked.has(it.id)) }))
+    setPicked(new Set(sel))
+  }
+  const duplicate = () => {
+    const copies = selItems.map((it) => {
+      // the copy goes one block-width along, to the right of the original
+      const a = (it.rot * Math.PI) / 180
+      const step = KINDS[it.kind].w + 0.2
+      return { ...it, id: newId(), x: it.x + Math.cos(a) * step, y: it.y + Math.sin(a) * step }
+    })
+    setPlan((p) => ({ ...p, items: [...p.items, ...copies] }))
+    setPicked(new Set(copies.map((c) => c.id)))
+  }
+  const addMiddle = (kind) => {
+    const p = api.current?.centre()
+    if (p) addItem(kind, p)
   }
 
   const lock = () => {
@@ -136,6 +182,8 @@ export default function App() {
       if (e.key === 'Escape') setPicked(new Set())
       if (e.key === 'l' || e.key === 'L') lock()
       if (e.key === 'u' || e.key === 'U') unlock()
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selItems.length) removeItems()
+      if ((e.key === 'r' || e.key === 'R') && selItems.length) rotate(e.shiftKey ? -15 : 90)
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
@@ -173,8 +221,8 @@ export default function App() {
     e.target.value = ''
   }
   const reset = () => {
-    if (!confirm('Clear every title and block?')) return
-    setPlan({ title: {}, block: {} })
+    if (!confirm('Clear every title, block and added element?')) return
+    setPlan(EMPTY)
     setPicked(new Set())
   }
 
@@ -186,7 +234,10 @@ export default function App() {
   return (
     <div className="app">
       <main className="stage">
-        <Scene site={site} title={title} block={block} picked={picked} onPick={pick} onClear={() => setPicked(new Set())} labels={labels} view={view} />
+        <Scene
+          site={site} title={title} block={block} picked={picked} onPick={pick} onClear={() => setPicked(new Set())} labels={labels} view={view}
+          items={items} onSelectItem={pick} onMoveItem={moveItem} onDropKind={addItem} snap={snap} api={api}
+        />
         <div className="bar top">
           <div className="seg-group" role="group" aria-label="Camera">
             <button onClick={() => setView({ name: 'home', t: Date.now() })}>3D</button>
@@ -210,12 +261,27 @@ export default function App() {
 
         <div className="body">
           <section className="selection">
-            <h2>{sel.length ? `${sel.length} garage${sel.length > 1 ? 's' : ''} selected` : 'Nothing selected'}</h2>
+            <h2>
+              {sel.length || selItems.length
+                ? [sel.length && `${sel.length} garage${sel.length > 1 ? 's' : ''}`, selItems.length && `${selItems.length} element${selItems.length > 1 ? 's' : ''}`].filter(Boolean).join(' + ') + ' selected'
+                : 'Nothing selected'}
+            </h2>
             <p className="muted">
               {sel.length
                 ? `${selText}${selBlocks.size ? ` · ${selBlocks.size} locked block${selBlocks.size > 1 ? 's' : ''}` : ''}`
-                : 'Click a garage or its title. Shift-click to add more, or tick the box below.'}
+                : selItems.length
+                  ? [...new Set(selItems.map((it) => KINDS[it.kind].name))].join(', ') + '. Drag it in the model to move it.'
+                  : 'Click a garage or its title. Shift-click to add more, or tick the box below.'}
             </p>
+            {selItems.length > 0 && (
+              <div className="actions element-actions">
+                <button onClick={() => rotate(90)}>Turn 90°</button>
+                <button onClick={() => rotate(15)}>Turn 15°</button>
+                <button onClick={duplicate}>Copy</button>
+                <button onClick={() => changeItems((it) => ({ ...it, z: 0 }))}>To ground</button>
+                <button className="danger" onClick={removeItems}>Delete</button>
+              </div>
+            )}
             <label className="check">
               <input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} /> Add to selection on each click
             </label>
@@ -224,21 +290,48 @@ export default function App() {
                 Lock together
               </button>
               <button disabled={!selBlocks.size} onClick={unlock}>Unlock</button>
-              <button disabled={!sel.length} onClick={() => setPicked(new Set())}>Deselect</button>
+              <button disabled={!sel.length && !selItems.length} onClick={() => setPicked(new Set())}>Deselect</button>
             </div>
           </section>
 
           <section>
             <h2>Title</h2>
+            {!canTitle && selItems.length > 0 && <p className="muted">Only garages and added garage or half blocks take a title.</p>}
             <div className="titles">
               {TITLES.map((t) => (
-                <button key={t.id} disabled={!sel.length} className={shared === t.id ? 'on' : ''} onClick={() => setTitle(t.id)}>
+                <button key={t.id} disabled={!canTitle} className={shared === t.id ? 'on' : ''} onClick={() => setTitle(t.id)}>
                   <span className="dot" style={{ background: t.color }} />
                   {t.name}
                 </button>
               ))}
-              <button disabled={!sel.length} className="none" onClick={() => setTitle(null)}>No title</button>
+              <button disabled={!canTitle} className="none" onClick={() => setTitle(null)}>No title</button>
             </div>
+          </section>
+
+          <section>
+            <h2>Add elements</h2>
+            <p className="muted">Drag one onto the model, or click it to drop it in the middle of the view. Drop onto a roof to stack. Add as many as you like.</p>
+            <div className="palette">
+              {KIND_IDS.map((k) => (
+                <button
+                  key={k}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/kind', k)
+                    e.dataTransfer.effectAllowed = 'copy'
+                  }}
+                  onClick={() => addMiddle(k)}
+                  title={`${KINDS[k].name}, ${KINDS[k].size} m`}
+                >
+                  <span className="pname">{KINDS[k].name}</span>
+                  <small>{KINDS[k].size} m</small>
+                </button>
+              ))}
+            </div>
+            <label className="check">
+              <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} /> Snap to the garage grid (1.5 m)
+            </label>
+            <p className="muted small">{items.length} element{items.length === 1 ? '' : 's'} added. Keys: R turn 90° · Shift+R turn back 15° · Delete removes.</p>
           </section>
 
           <section>

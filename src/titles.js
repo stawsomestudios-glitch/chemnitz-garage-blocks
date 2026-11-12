@@ -23,6 +23,8 @@ export const TITLES = [
   { id: 'picnic', name: 'PICNIC', color: '#9cc25a' },
   { id: 'vending', name: '24/7 VENDING', color: '#6b7a8a' },
   { id: 'toilet', name: 'TOILET', color: '#3fa7b5' },
+  // `car: true` opens the door and parks a model car inside.
+  { id: 'car', name: 'CAR GARAGE', color: '#9a9ea4', car: true },
   // `clear: true` makes the garage see-through in the model.
   { id: 'between', name: 'IN-BETWEEN SPACE', color: '#8fbfd8', clear: true },
 ]
