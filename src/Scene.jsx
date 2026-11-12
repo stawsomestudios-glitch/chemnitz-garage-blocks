@@ -5,8 +5,8 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { GARAGES, BY_ID, MODULE } from './garages.js'
 import { TITLE, EMPTY_COLOR } from './titles.js'
-import { CarGarage, Elements, ViewApi } from './Elements.jsx'
-import { KINDS } from './elements.js'
+import { CarGarage, ConnectDots, Elements, ViewApi } from './Elements.jsx'
+import { KINDS, dims } from './elements.js'
 
 // Map metres (east, north) become three.js (x = east, y = up, z = south).
 const HOME = [-92, 80, -104]
@@ -127,7 +127,7 @@ function shapes(block) {
 }
 
 // Solid garages, their doors, and see-through garages (titles marked `clear`) are three separate sets.
-function Garages({ title, block, picked, onPick }) {
+function Garages({ title, block, picked, onPick, connecting }) {
   const body = useRef()
   const door = useRef()
   const glass = useRef()
@@ -179,6 +179,7 @@ function Garages({ title, block, picked, onPick }) {
     })
   }, [placed, title, picked, lists])
   const click = (list) => (e) => {
+    if (connecting) return // let the click reach the connect dots
     e.stopPropagation()
     if (e.delta > 6) return // that was a drag to turn the view, not a click
     onPick(GARAGES[list[e.instanceId]].id, e.shiftKey || e.ctrlKey || e.metaKey)
@@ -188,7 +189,7 @@ function Garages({ title, block, picked, onPick }) {
   return (
     <>
       {lists.car.map((i) => (
-        <CarGarage key={GARAGES[i].id} g={GARAGES[i]} s={placed[i]} colour={TITLE.car.color} sel={picked.has(GARAGES[i].id)} onPick={onPick} />
+        <CarGarage key={GARAGES[i].id} g={GARAGES[i]} s={placed[i]} colour={TITLE.car.color} sel={picked.has(GARAGES[i].id)} onPick={onPick} connecting={connecting} />
       ))}
       <instancedMesh ref={body} args={[box, null, GARAGES.length]} userData={{ stack: true }} castShadow receiveShadow onClick={click(lists.solid)} onPointerOver={over} onPointerOut={out}>
         <meshStandardMaterial roughness={0.8} />
@@ -283,14 +284,14 @@ function useItems({ title, block, picked, labels, items }) {
       for (const it of items)
         if (it.title && TITLE[it.title]) {
           const sel = picked.has(it.id)
-          list.push({ key: `${it.id}|${it.title}`, first: it.id, p: [it.x, it.z + 4.1, -it.y], text: TITLE[it.title].name, color: TITLE[it.title].color, block: true, sel, rank: sel ? 0 : 2, order: 999 })
+          list.push({ key: `${it.id}|${it.title}`, first: it.id, p: [it.x, it.z + dims(it).h + 1.1, -it.y], text: TITLE[it.title].name, color: TITLE[it.title].color, block: true, sel, rank: sel ? 0 : 2, order: 999 })
         }
     const order = (x) => x.order ?? BY_ID[x.first].i
     return list.sort((a, b) => a.rank - b.rank || order(a) - order(b))
   }, [title, block, picked, labels, items])
 }
 
-export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api }) {
+export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget }) {
   const tags = useItems({ title, block, picked, labels, items })
   const refs = useRef([])
   const down = useRef([0, 0])
@@ -335,14 +336,15 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
           shadow-normalBias={0.05}
         />
         <Context site={site} />
-        <Garages title={title} block={block} picked={picked} onPick={onPick} />
-        <Elements items={items} picked={picked} onSelect={onSelectItem} onMove={onMoveItem} snap={snap} />
+        <Garages title={title} block={block} picked={picked} onPick={onPick} connecting={!!connect} />
+        <Elements items={items} picked={picked} onSelect={onSelectItem} onMove={onMoveItem} snap={snap} connecting={!!connect} />
+        <ConnectDots connect={connect} items={items} onGrip={onGrip} onTarget={onTarget} />
         <ViewApi api={api} />
         <OrbitControls makeDefault target={TARGET} maxPolarAngle={Math.PI / 2.05} minDistance={6} maxDistance={600} />
         <Camera view={view} />
         <LabelTracker items={tags} refs={refs} />
       </Canvas>
-      <div className="labels">
+      <div className={connect ? "labels passive" : "labels"}>
         {tags.map((it, i) => (
           <button
             key={it.key}

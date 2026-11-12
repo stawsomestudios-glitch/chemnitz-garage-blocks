@@ -75,8 +75,95 @@ export const KINDS = {
     parts: (c) => [cyl([0, 0.72, 0], [0.42, 1.44, 0.3], c), { g: 'ball', p: [0, 1.58, 0], s: [0.24, 0.27, 0.24], c: '#d9b89a' }],
   },
   car: { name: 'Car', size: '4.3 long', w: 1.8, d: 4.3, colour: null, parts: (c) => carParts(c) },
+  bridge: {
+    name: 'Bridge walkway', size: '2 × 9, rests on roofs', w: 2, d: 9, colour: '#9aa0a6',
+    parts: (c) => [
+      box([0, 0.1, 0], [2, 0.2, 9], c, { stack: true }),
+      box([-0.97, 0.65, 0], [0.04, 0.9, 9], '#bcd3df', { o: 0.4 }),
+      box([0.97, 0.65, 0], [0.04, 0.9, 9], '#bcd3df', { o: 0.4 }),
+      box([-0.97, 1.12, 0], [0.07, 0.05, 9], '#4a4d52'),
+      box([0.97, 1.12, 0], [0.07, 0.05, 9], '#4a4d52'),
+    ],
+  },
+  bridgelegs: {
+    name: 'Bridge on legs', size: '2 × 9, deck at 3', w: 2, d: 9, deck: 3, colour: '#9aa0a6',
+    parts: (c) => [
+      ...[[-0.8, -4.2], [0.8, -4.2], [-0.8, 4.2], [0.8, 4.2]].map(([x, z]) => cyl([x, 1.4, z], [0.2, 2.8, 0.2], '#4a4d52')),
+      box([0, 2.9, 0], [2, 0.2, 9], c, { stack: true }),
+      box([-0.97, 3.45, 0], [0.04, 0.9, 9], '#bcd3df', { o: 0.4 }),
+      box([0.97, 3.45, 0], [0.04, 0.9, 9], '#bcd3df', { o: 0.4 }),
+      box([-0.97, 3.92, 0], [0.07, 0.05, 9], '#4a4d52'),
+      box([0.97, 3.92, 0], [0.07, 0.05, 9], '#4a4d52'),
+    ],
+  },
+  ramp: {
+    name: 'Ramp to roof', size: '1.5 × 9, 3 up', w: 1.5, d: 9, colour: '#b9b2a6',
+    parts: (c) => [box([0, 1.4, 0], [1.5, 0.2, Math.hypot(9, 2.8)], c, { r: [Math.atan2(2.8, 9), 0, 0] }), box([0, 2.9, -4.5 + 0.3], [1.5, 0.2, 0.6], c)],
+  },
 }
+// Height of each element in metres, used for sizes, stacking and connect points.
+const HEIGHTS = { module: 3, half: 3, deck: 0.3, stairs: 3, shade: 3.4, pergola: 3.08, parasol: 2.75, tree: 6.1, planter: 0.76, bench: 0.95, table: 0.78, wall: 2.4, lamp: 4.05, person: 1.71, car: 1.4, bridge: 1.15, bridgelegs: 3.95, ramp: 3 }
+for (const k in KINDS) KINDS[k].h = HEIGHTS[k]
 export const KIND_IDS = Object.keys(KINDS)
+
+// The real size of an element: what you typed in, or its normal size.
+export function dims(it) {
+  const k = KINDS[it.kind]
+  return { w: it.sw ?? k.w, d: it.sd ?? k.d, h: it.sh ?? k.h }
+}
+
+// Connect points of an element, in its own frame: corners, edge middles and centre,
+// at the bottom, at the top, and at deck level for a bridge on legs. [across, up, front-back]
+export function localAnchors(it) {
+  const k = KINDS[it.kind]
+  const { w, d, h } = dims(it)
+  const levels = [0, h]
+  if (k.deck) levels.splice(1, 0, (k.deck * h) / k.h)
+  const out = []
+  for (const y of levels) for (const x of [-w / 2, 0, w / 2]) for (const z of [-d / 2, 0, d / 2]) out.push([x, y, z])
+  return out
+}
+// Turns a point in the element's frame into map metres [east, north, height].
+export function toWorld(it, [lx, ly, lz]) {
+  const a = (it.rot * PI) / 180
+  return [it.x + lx * Math.cos(a) + lz * Math.sin(a), it.y + lx * Math.sin(a) - lz * Math.cos(a), it.z + ly]
+}
+// Moves an element so that its point `grip` lands exactly on `target`.
+export function placeByGrip(it, [lx, ly, lz], [tx, ty, tz]) {
+  const a = (it.rot * PI) / 180
+  return { x: tx - (lx * Math.cos(a) + lz * Math.sin(a)), y: ty - (lx * Math.sin(a) - lz * Math.cos(a)), z: Math.max(0, tz - ly) }
+}
+
+// Connect points on the garages: every corner, edge middle and centre, on the ground and on the roof.
+export const GARAGE_POINTS = (() => {
+  const seen = new Map()
+  for (const g of GARAGES)
+    for (const a of [-1.5, 0, 1.5])
+      for (const b of [-3, 0, 3])
+        for (const z of [0, 3]) {
+          const p = [g.x + g.u[0] * a + g.n[0] * b, g.y + g.u[1] * a + g.n[1] * b, z]
+          const key = `${p[0].toFixed(1)},${p[1].toFixed(1)},${z}`
+          if (!seen.has(key)) seen.set(key, p)
+        }
+  return [...seen.values()]
+})()
+
+// While dragging with point snapping: if a bottom corner or edge of the element comes within
+// `reach` metres of a connect point at the same height, pull it onto that point.
+export function magnet(it, targets, reach = 1.2) {
+  let best = null
+  let bd = reach * reach
+  for (const g of localAnchors(it)) {
+    if (g[1] !== 0) continue
+    const p = toWorld(it, g)
+    for (const t of targets) {
+      if (Math.abs(t[2] - p[2]) > 0.35) continue
+      const dd = (t[0] - p[0]) ** 2 + (t[1] - p[1]) ** 2
+      if (dd < bd) [bd, best] = [dd, { x: it.x + t[0] - p[0], y: it.y + t[1] - p[1], z: t[2] }]
+    }
+  }
+  return best
+}
 
 function nearest(x, y) {
   let best = GARAGES[0]

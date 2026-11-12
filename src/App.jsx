@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Scene from './Scene.jsx'
 import { GARAGES, BY_ID, ROW_IDS, connected, label } from './garages.js'
 import { TITLES, TITLE } from './titles.js'
-import { KINDS, KIND_IDS, alignRot, snapPoint } from './elements.js'
+import { KINDS, KIND_IDS, alignRot, dims, placeByGrip, snapPoint } from './elements.js'
 
 const BASE = import.meta.env.BASE_URL
 const KEY = 'chemnitz-garage-blocks-v1'
@@ -28,7 +28,12 @@ function clean(s) {
   const num = (v) => (Number.isFinite(+v) ? +v : 0)
   const items = (Array.isArray(s.items) ? s.items : [])
     .filter((it) => it && KINDS[it.kind])
-    .map((it) => ({ id: String(it.id ?? newId()), kind: it.kind, x: num(it.x), y: num(it.y), z: num(it.z), rot: num(it.rot), ...(TITLE[it.title] && KINDS[it.kind].titled ? { title: it.title } : {}) }))
+    .map((it) => {
+      const out = { id: String(it.id ?? newId()), kind: it.kind, x: num(it.x), y: num(it.y), z: num(it.z), rot: num(it.rot) }
+      if (TITLE[it.title] && KINDS[it.kind].titled) out.title = it.title
+      for (const k of ['sw', 'sd', 'sh']) if (+it[k] > 0) out[k] = +it[k]
+      return out
+    })
   return { title, block, items }
 }
 function download(name, text, type) {
@@ -48,7 +53,8 @@ export default function App() {
   const [labels, setLabels] = useState('titles')
   const [view, setView] = useState(null)
   const [note, setNote] = useState(null)
-  const [snap, setSnap] = useState(true)
+  const [snap, setSnap] = useState('grid')
+  const [connect, setConnect] = useState(null) // null, or { stage: 'grip' | 'target', id, grip }
   const file = useRef()
   const api = useRef(null)
   const { title, block, items } = plan
@@ -117,7 +123,7 @@ export default function App() {
 
   // ----- added elements -----
   const addItem = (kind, [x, y, z]) => {
-    const [sx, sy] = snap ? snapPoint(x, y) : [x, y]
+    const [sx, sy] = snap === 'grid' ? snapPoint(x, y) : [x, y]
     const it = { id: newId(), kind, x: sx, y: sy, z, rot: alignRot(sx, sy) }
     setPlan((p) => ({ ...p, items: [...p.items, it] }))
     setPicked(new Set([it.id]))
@@ -133,12 +139,44 @@ export default function App() {
     const copies = selItems.map((it) => {
       // the copy goes one block-width along, to the right of the original
       const a = (it.rot * Math.PI) / 180
-      const step = KINDS[it.kind].w + 0.2
+      const step = dims(it).w + 0.2
       return { ...it, id: newId(), x: it.x + Math.cos(a) * step, y: it.y + Math.sin(a) * step }
     })
     setPlan((p) => ({ ...p, items: [...p.items, ...copies] }))
     setPicked(new Set(copies.map((c) => c.id)))
   }
+  // Size: what you type in W / L / H, or a scale step for every selected element.
+  const resize = (key, value) => {
+    const v = Math.round(+value * 100) / 100
+    if (!(v > 0)) return
+    changeItems((it) => ({ ...it, [key]: v }))
+  }
+  const scaleBy = (f) =>
+    changeItems((it) => {
+      const s = dims(it)
+      const r = (v) => Math.round(v * f * 100) / 100
+      return { ...it, sw: r(s.w), sd: r(s.d), sh: r(s.h) }
+    })
+  const resetSize = () =>
+    changeItems((it) => {
+      const { sw, sd, sh, ...rest } = it
+      return rest
+    })
+
+  // Connect: hold the element by one of its points, then put that point on another point.
+  const startConnect = () => {
+    if (selItems.length !== 1) return setNote('Select one element to connect.')
+    setConnect({ stage: 'grip', id: selItems[0].id })
+  }
+  const onGrip = (grip) => setConnect((c) => ({ ...c, stage: 'target', grip }))
+  const onTarget = (target) => {
+    const c = connect
+    setPlan((p) => ({ ...p, items: p.items.map((it) => (it.id === c.id ? { ...it, ...placeByGrip(it, c.grip, target) } : it)) }))
+    setPicked(new Set([c.id]))
+    setConnect(null)
+    setNote('Connected.')
+  }
+
   const addMiddle = (kind) => {
     const p = api.current?.centre()
     if (p) addItem(kind, p)
@@ -179,7 +217,11 @@ export default function App() {
   useEffect(() => {
     const key = (e) => {
       if (e.target.tagName === 'INPUT') return
-      if (e.key === 'Escape') setPicked(new Set())
+      if (e.key === 'Escape') {
+        if (connect) return setConnect(null)
+        setPicked(new Set())
+      }
+      if ((e.key === 'c' || e.key === 'C') && selItems.length === 1) startConnect()
       if (e.key === 'l' || e.key === 'L') lock()
       if (e.key === 'u' || e.key === 'U') unlock()
       if ((e.key === 'Delete' || e.key === 'Backspace') && selItems.length) removeItems()
@@ -235,9 +277,30 @@ export default function App() {
     <div className="app">
       <main className="stage">
         <Scene
-          site={site} title={title} block={block} picked={picked} onPick={pick} onClear={() => setPicked(new Set())} labels={labels} view={view}
+          site={site} title={title} block={block} picked={picked} onPick={pick} onClear={() => !connect && setPicked(new Set())} labels={labels} view={view}
           items={items} onSelectItem={pick} onMoveItem={moveItem} onDropKind={addItem} snap={snap} api={api}
+          connect={connect} onGrip={onGrip} onTarget={onTarget}
         />
+        {connect && (
+          <div className="connect-bar" role="status">
+            <b>{connect.stage === 'grip' ? 'Step 1 of 2' : 'Step 2 of 2'}</b>
+            {connect.stage === 'grip'
+              ? ' Click the orange point to hold the element by (a corner, edge middle or centre). Choose its bottom, deck or top:'
+              : ' Click the blue point where it should go: any garage corner or edge, on the ground or the roof, or a point on another element.'}
+            {connect.stage === 'grip' ? (
+              <div className="seg-group small-seg" role="group" aria-label="Hold by">
+                {[['bottom', 'Bottom'], ...(KINDS[items.find((i) => i.id === connect.id)?.kind]?.deck ? [['deck', 'Deck']] : []), ['top', 'Top']].map(([k, l]) => (
+                  <button key={k} className={(connect.level ?? 'bottom') === k ? 'on' : ''} onClick={() => setConnect((c) => ({ ...c, level: k }))}>{l}</button>
+                ))}
+              </div>
+            ) : (
+              <label className="check nowrap">
+                <input type="checkbox" checked={!!connect.ground} onChange={(e) => setConnect((c) => ({ ...c, ground: e.target.checked }))} /> Ground only
+              </label>
+            )}
+            <button onClick={() => setConnect(null)}>Cancel</button>
+          </div>
+        )}
         <div className="bar top">
           <div className="seg-group" role="group" aria-label="Camera">
             <button onClick={() => setView({ name: 'home', t: Date.now() })}>3D</button>
@@ -274,7 +337,32 @@ export default function App() {
                   : 'Click a garage or its title. Shift-click to add more, or tick the box below.'}
             </p>
             {selItems.length > 0 && (
+              <div className="sizes">
+                {[['sw', 'Width', 'w'], ['sd', 'Length', 'd'], ['sh', 'Height', 'h']].map(([key, l, dk]) => (
+                  <label key={key}>
+                    <span>{l}</span>
+                    <input
+                      key={`${selItems[0].id}-${dims(selItems[0])[dk]}`}
+                      type="number" min="0.1" step="0.1"
+                      defaultValue={dims(selItems[0])[dk]}
+                      onBlur={(e) => resize(key, e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && resize(key, e.target.value)}
+                    />
+                    <small>m</small>
+                  </label>
+                ))}
+                <div className="scale-btns">
+                  <button onClick={() => scaleBy(0.9)}>−10%</button>
+                  <button onClick={() => scaleBy(1.1)}>+10%</button>
+                  <button onClick={resetSize}>Normal size</button>
+                </div>
+              </div>
+            )}
+            {selItems.length > 0 && (
               <div className="actions element-actions">
+                <button className="primary" disabled={selItems.length !== 1} onClick={startConnect} title="Hold the element by one point and put it on another (key C)">
+                  Connect a point
+                </button>
                 <button onClick={() => rotate(90)}>Turn 90°</button>
                 <button onClick={() => rotate(15)}>Turn 15°</button>
                 <button onClick={duplicate}>Copy</button>
@@ -328,9 +416,15 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <label className="check">
-              <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} /> Snap to the garage grid (1.5 m)
-            </label>
+            <div className="snaprow">
+              <span>Snap when dragging</span>
+              <div className="seg-group small-seg" role="group" aria-label="Snap">
+                {[['grid', 'Grid 1.5 m'], ['points', 'Points'], ['off', 'Off']].map(([k, l]) => (
+                  <button key={k} className={snap === k ? 'on' : ''} onClick={() => setSnap(k)}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <p className="muted small">Points: corners and edges pull onto nearby garage corners and edges, or onto other elements.</p>
             <p className="muted small">{items.length} element{items.length === 1 ? '' : 's'} added. Keys: R turn 90° · Shift+R turn back 15° · Delete removes.</p>
           </section>
 
