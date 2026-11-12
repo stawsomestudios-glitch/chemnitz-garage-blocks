@@ -105,3 +105,5 @@ h2 { font-size: 14px; margin: 0 0 6px; }
 }
 .labels.passive .tag { pointer-events: none; opacity: 0.35; }
 .connect-bar .check { margin: 0; white-space: nowrap; }
+.tag.sky { background: #1f3b57; color: #fff; border-left-color: #7fb2e0; font-size: 11px; pointer-events: none; }
+.bar .toggle { pointer-events: auto; display: flex; align-items: center; gap: 6px; background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); border-radius: 8px; padding: 6px 11px; font-size: 13px; font-weight: 600; cursor: pointer; }

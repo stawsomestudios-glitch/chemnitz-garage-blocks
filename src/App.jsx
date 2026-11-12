@@ -54,6 +54,7 @@ export default function App() {
   const [view, setView] = useState(null)
   const [note, setNote] = useState(null)
   const [snap, setSnap] = useState('grid')
+  const [skywalk, setSkywalk] = useState(true)
   const [connect, setConnect] = useState(null) // null, or { stage: 'grip' | 'target', id, grip }
   const file = useRef()
   const api = useRef(null)
@@ -279,7 +280,7 @@ export default function App() {
         <Scene
           site={site} title={title} block={block} picked={picked} onPick={pick} onClear={() => !connect && setPicked(new Set())} labels={labels} view={view}
           items={items} onSelectItem={pick} onMoveItem={moveItem} onDropKind={addItem} snap={snap} api={api}
-          connect={connect} onGrip={onGrip} onTarget={onTarget}
+          connect={connect} onGrip={onGrip} onTarget={onTarget} skywalk={skywalk}
         />
         {connect && (
           <div className="connect-bar" role="status">
@@ -311,6 +312,9 @@ export default function App() {
               <button key={k} className={labels === k ? 'on' : ''} onClick={() => setLabels(k)}>{l}</button>
             ))}
           </div>
+          <label className="toggle">
+            <input type="checkbox" checked={skywalk} onChange={(e) => setSkywalk(e.target.checked)} /> Skywalk
+          </label>
         </div>
         <p className="hint">Drag to turn · scroll to zoom · right-drag to move · zoom in to see every title</p>
         {note && <div className="note" role="status">{note}</div>}

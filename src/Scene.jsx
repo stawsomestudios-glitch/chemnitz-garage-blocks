@@ -7,6 +7,8 @@ import { GARAGES, BY_ID, MODULE } from './garages.js'
 import { TITLE, EMPTY_COLOR } from './titles.js'
 import { CarGarage, ConnectDots, Elements, ViewApi } from './Elements.jsx'
 import { KINDS, dims } from './elements.js'
+import Skywalk from './Skywalk.jsx'
+import { skywalkTags } from './skywalk.js'
 
 // Map metres (east, north) become three.js (x = east, y = up, z = south).
 const HOME = [-92, 80, -104]
@@ -250,7 +252,7 @@ function Camera({ view }) {
 }
 
 // One title per locked block, or per single garage. Selected ones first, so they are never hidden.
-function useItems({ title, block, picked, labels, items }) {
+function useItems({ title, block, picked, labels, items, skywalk }) {
   return useMemo(() => {
     if (labels === 'off') return []
     const groups = new Map()
@@ -279,6 +281,8 @@ function useItems({ title, block, picked, labels, items }) {
         rank: (ids.some((id) => picked.has(id)) ? 0 : 3) + (isBlock ? 0 : 1) + (t ? 0 : 1),
       })
     }
+    if (skywalk)
+      for (const t of skywalkTags()) list.push({ key: t.key, p: [t.at[0], t.at[2], -t.at[1]], text: t.text, sky: true, rank: -1, order: -1 })
     // added blocks that have a title get a tag too
     if (labels === 'titles')
       for (const it of items)
@@ -288,11 +292,11 @@ function useItems({ title, block, picked, labels, items }) {
         }
     const order = (x) => x.order ?? BY_ID[x.first].i
     return list.sort((a, b) => a.rank - b.rank || order(a) - order(b))
-  }, [title, block, picked, labels, items])
+  }, [title, block, picked, labels, items, skywalk])
 }
 
-export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget }) {
-  const tags = useItems({ title, block, picked, labels, items })
+export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget, skywalk }) {
+  const tags = useItems({ title, block, picked, labels, items, skywalk })
   const refs = useRef([])
   const down = useRef([0, 0])
   return (
@@ -340,6 +344,7 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
         <Elements items={items} picked={picked} onSelect={onSelectItem} onMove={onMoveItem} snap={snap} connecting={!!connect} />
         <ConnectDots connect={connect} items={items} onGrip={onGrip} onTarget={onTarget} />
         <ViewApi api={api} />
+        {skywalk && <Skywalk />}
         <OrbitControls makeDefault target={TARGET} maxPolarAngle={Math.PI / 2.05} minDistance={6} maxDistance={600} />
         <Camera view={view} />
         <LabelTracker items={tags} refs={refs} />
@@ -349,9 +354,9 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
           <button
             key={it.key}
             ref={(el) => (refs.current[i] = el)}
-            className={['tag', it.empty && 'empty', it.block && 'block', it.sel && 'sel'].filter(Boolean).join(' ')}
+            className={['tag', it.empty && 'empty', it.block && 'block', it.sel && 'sel', it.sky && 'sky'].filter(Boolean).join(' ')}
             style={{ '--c': it.color ?? '#b9b4a9' }}
-            onClick={(e) => onPick(it.first, e.shiftKey || e.ctrlKey || e.metaKey)}
+            onClick={(e) => it.first && onPick(it.first, e.shiftKey || e.ctrlKey || e.metaKey)}
           >
             {it.text}
           </button>
