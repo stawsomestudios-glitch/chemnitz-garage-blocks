@@ -240,16 +240,24 @@ function LabelTracker({ items, refs }) {
   return null
 }
 
-function Camera({ view }) {
+function Camera({ view, pieces }) {
   const { camera, controls } = useThree()
   useEffect(() => {
     if (!controls || !view) return
-    // the Ribbon view looks from the north, over the forecourt, so the whole ribbon is in view
-    const [pos, target] = view.name === 'plan' ? [[-3, 165, -4.99], TARGET] : view.name === 'ribbon' ? [[16, 100, -192], [10, 0, -42]] : [HOME, TARGET]
+    // "Zoom to it": look at one ribbon piece from the south-west, close up
+    const at = view.name === 'piece' ? pieces?.find((t) => t.i === view.i)?.p : null
+    if (at) {
+      camera.position.set(at[0] - 13, at[1] + 9, at[2] + 13)
+      controls.target.set(at[0], Math.max(0.5, at[1] - 1.6), at[2])
+      controls.update()
+      return
+    }
+    // the Ribbon view looks from the south, high up, so the whole ribbon is in view
+    const [pos, target] = view.name === 'plan' ? [[-3, 165, -4.99], TARGET] : view.name === 'ribbon' ? [[18, 300, 190], [18, 0, -30]] : [HOME, TARGET]
     camera.position.set(...pos)
     controls.target.set(...target)
     controls.update()
-  }, [view, camera, controls])
+  }, [view, camera, controls]) // eslint-disable-line react-hooks/exhaustive-deps
   return null
 }
 
@@ -354,7 +362,7 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
         <ConnectDots connect={connect} items={items} onGrip={onGrip} onTarget={onTarget} />
         <ViewApi api={api} />
         <OrbitControls makeDefault target={TARGET} maxPolarAngle={Math.PI / 2.05} minDistance={6} maxDistance={600} />
-        <Camera view={view} />
+        <Camera view={view} pieces={built?.tags} />
         <LabelTracker items={tags} refs={refs} />
       </Canvas>
       <div className={connect ? "labels passive" : "labels"}>

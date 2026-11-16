@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { COBALT } from './ribbon.js'
 
 const BASE = new THREE.Color(COBALT)
-const PICKED = new THREE.Color(COBALT).lerp(new THREE.Color('#ffffff'), 0.45)
+const PICKED = new THREE.Color('#5b9bff') // a lighter, brighter blue for the piece you picked
 
 // The cobalt ribbon. Click it to pick the piece under the pointer.
 export default function Ribbon({ built, chosen, onPickPiece, connecting }) {

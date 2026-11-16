@@ -3,7 +3,7 @@ import Scene from './Scene.jsx'
 import { GARAGES, BY_ID, ROW_IDS, connected, label } from './garages.js'
 import { TITLES, TITLE } from './titles.js'
 import { KINDS, KIND_IDS, alignRot, dims, placeByGrip, snapPoint } from './elements.js'
-import { COBALT, DEFAULT_RIBBON, RIBBON_KINDS, RIBBON_KIND_IDS, cleanRibbon } from './ribbon.js'
+import { COBALT, DEFAULT_RIBBON, RIBBON_GROUPS, RIBBON_KINDS, STREETS, cleanRibbon, routeCurve } from './ribbon.js'
 
 const BASE = import.meta.env.BASE_URL
 const KEY = 'chemnitz-garage-blocks-v1'
@@ -205,6 +205,7 @@ export default function App() {
     setChosen(null)
   }
   const ribbonLen = ribbon.pieces.reduce((a, p) => a + p.len, 0)
+  const routeLen = useMemo(() => routeCurve().getLength(), [])
   const piece = chosen != null ? ribbon.pieces[chosen] : null
   const startAt = chosen != null ? ribbon.pieces.slice(0, chosen).reduce((a, p) => a + p.len, 0) : 0
   const setLen = (e) => +e.target.value > 0 && editPiece(chosen, { len: Math.round(+e.target.value * 10) / 10 })
@@ -431,13 +432,18 @@ export default function App() {
               <p className="muted">
                 From {startAt.toFixed(1)} m to {(startAt + piece.len).toFixed(1)} m along the ribbon. {RIBBON_KINDS[piece.kind].note ?? ''}
               </p>
-              <div className="titles ribbon-kinds">
-                {RIBBON_KIND_IDS.map((k) => (
-                  <button key={k} className={piece.kind === k ? 'on' : ''} onClick={() => editPiece(chosen, { kind: k })}>
-                    {RIBBON_KINDS[k].name}
-                  </button>
-                ))}
-              </div>
+              {RIBBON_GROUPS.map(([group, kinds]) => (
+                <div key={group} className="kind-group">
+                  <h3>{group}</h3>
+                  <div className="titles ribbon-kinds">
+                    {kinds.map((k) => (
+                      <button key={k} className={piece.kind === k ? 'on' : ''} onClick={() => editPiece(chosen, { kind: k })}>
+                        {RIBBON_KINDS[k].name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
               <div className="sizes">
                 <label>
                   <span>Length</span>
@@ -452,18 +458,25 @@ export default function App() {
                 </label>
               </div>
               <div className="actions">
+                <button className="primary" onClick={() => setView({ name: 'piece', i: chosen, t: Date.now() })}>Zoom to it</button>
                 <button disabled={chosen === 0} onClick={() => setChosen(chosen - 1)}>← Previous</button>
                 <button disabled={chosen >= ribbon.pieces.length - 1} onClick={() => setChosen(chosen + 1)}>Next →</button>
                 <button onClick={() => splitPiece(chosen)}>Split in two</button>
                 <button className="danger" disabled={ribbon.pieces.length < 2} onClick={() => deletePiece(chosen)}>Delete piece</button>
               </div>
-              <p className="muted small">Pieces after this one slide along when you change its length. Keep the CROSSING pieces over the streets: Stollberger Straße is at 34–59 m, Haydnstraße at 110–120 m.</p>
+              <p className="muted small">
+                Pieces after this one slide along when you change its length. Keep the CROSSING pieces over the streets:{' '}
+                {STREETS.map(([name, a, b]) => `${name} ${a}–${b} m`).join(', ')}.
+              </p>
             </section>
           )}
 
           <section>
             <h2><span className="dot" style={{ background: COBALT }} /> Ribbon</h2>
-            <p className="muted">One continuous cobalt band from across Stollberger Straße, through the garages, to across Haydnstraße. It folds into shade, benches, chairs, tables, stairs … Click it in the model to change a piece.</p>
+            <p className="muted">
+              One continuous cobalt band, about {Math.round(routeLen)} m. It starts in the green at Parkstraße / Haydnstraße, winds through four garage yards, turns at the corner of Richard-Wagner-Straße
+              and Stollberger Straße, and ends in the green under the school. On the way it folds into places to rest, meet, play and do sport. Click it in the model to change a piece.
+            </p>
             <label className="check">
               <input type="checkbox" checked={ribbon.on} onChange={(e) => setRibbon((r) => ({ ...r, on: e.target.checked }))} /> Show the ribbon
             </label>
@@ -485,7 +498,7 @@ export default function App() {
               ))}
             </ol>
             <p className="muted small">
-              {ribbonLen.toFixed(1)} m of pieces on a route of about 151 m{ribbonLen < 150 ? '; the rest lies flat as path' : ribbonLen > 152 ? '; pieces past the end are cut off' : ''}.
+              {ribbonLen.toFixed(1)} m of pieces on a route of {routeLen.toFixed(1)} m{ribbonLen < routeLen - 0.5 ? '; the rest lies flat as path' : ribbonLen > routeLen + 0.5 ? '; pieces past the end are cut off' : ''}.
             </p>
             <div className="actions">
               <button onClick={() => setRibbon((r) => ({ ...r, pieces: [...r.pieces, { kind: 'bench', len: 4 }] }))}>Add a piece at the end</button>

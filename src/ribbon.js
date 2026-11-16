@@ -1,30 +1,70 @@
 import * as THREE from 'three'
 
-// The ribbon: one continuous cobalt band that runs from the forecourt across Stollberger Straße,
-// over the street, through the garage yard between rows R1 and R2, over Haydnstraße, to the far side.
-// Along the way it folds up and down: a piece of it is a path, a bench, a table, stairs, a shade …
-// but it never breaks.
+// The ribbon: one continuous cobalt band that winds through the garages and links three places:
+//   start: the green wedge at the Parkstraße / Haydnstraße junction,
+//   middle: the corner where Richard-Wagner-Straße ends at Stollberger Straße,
+//   end: the green above the Haydnstraße / Stollberger Straße junction, just under the school (Haydnstraße 21).
+// Along the way it folds up and down into places to rest, meet, play and do sport, but it never breaks.
 
 export const COBALT = '#0047ab'
 export const THICK = 0.1 // thickness of the band, metres
 export const DEFAULT_WIDTH = 2.4 // metres
+export const VERSION = 2 // plans saved with an older ribbon start again from the new one
 
 // The line it follows in plan, in local metres (east, north). It is drawn as a smooth curve through these points.
+// Checked against the map: at least 0.7 m between the ribbon's edge and every garage, and no building in the way.
 export const ROUTE = [
-  [-46, 62], // forecourt across Stollberger Straße (NW side)
-  [-30, 67],
-  [-17, 64],
-  [-11, 58], // over Stollberger Straße and the tram
-  [2, 43],
-  [2, 34], // past the west end of row R1
-  [10, 27.4],
-  [20, 28.6], // the yard between R1 and R2
-  [30, 30.4],
-  [37, 27.5],
-  [46.5, 28.6], // over Haydnstraße
-  [58, 30.5],
-  [70, 28.5],
-  [80, 33], // the far side of Haydnstraße
+  [70, -84], // green wedge at Parkstraße / Haydnstraße
+  [72, -70],
+  [70, -60],
+  [62, -57], // over Parkstraße
+  [52, -51],
+  [48, -40], // along Haydnstraße, outside the garages
+  [44, -26],
+  [40, -14],
+  [33, -10.5], // into the yard between R5 and R6
+  [22, -12],
+  [14.5, -15],
+  [11.5, -19.2], // past the end of R7, along R11
+  [6, -19.7],
+  [-6, -20.6], // the south lane, along R13
+  [-18, -21],
+  [-26, -21.4],
+  [-30.3, -15], // up the yard between R10 and R12
+  [-31.2, -6],
+  [-33, -1],
+  [-38, 1.5], // the corner where Richard-Wagner-Straße meets Stollberger Straße
+  [-40, 5.5],
+  [-35, 9],
+  [-28.5, 15], // along Stollberger Straße, past the ends of R10, R9 and R8
+  [-22, 17.5],
+  [-16, 22],
+  [-12, 28.6],
+  [-6, 31],
+  [0, 31.5],
+  [5, 29],
+  [12, 26.8], // the yard between R1 and R2
+  [20, 28.6],
+  [29, 31],
+  [34, 40],
+  [36, 48], // over Haydnstraße
+  [47, 57],
+  [49, 68], // the green strips between Haydnstraße and Stollberger Straße
+  [52, 80],
+  [55, 90],
+  [47, 106], // over Stollberger Straße and the tram
+  [42, 120],
+  [42, 132], // the green under the school
+  [47, 148],
+  [41, 166],
+  [45, 190],
+]
+
+// Where the ribbon lies over a street, in metres along it (measured against the street data).
+export const STREETS = [
+  ['Parkstraße', 30, 41],
+  ['Haydnstraße', 286, 296],
+  ['Stollberger Straße and the tram', 337, 364],
 ]
 
 const B = THICK / 2 // centre of the band when it lies on the ground
@@ -60,34 +100,64 @@ function steps(n, rise, tread, s0, h0, dir) {
   }
   return out
 }
+// a smooth curve between two heights, flat at both ends
+const ease = (s0, s1, h0, h1, n = 10) =>
+  Array.from({ length: n + 1 }, (_, i) => {
+    const f = i / n
+    return [s0 + (s1 - s0) * f, h0 + (h1 - h0) * (0.5 - 0.5 * Math.cos(f * Math.PI))]
+  })
+
+// The groups the panel shows the kinds in.
+export const RIBBON_GROUPS = [
+  ['Move', ['path', 'crossing', 'stairs']],
+  ['Rest', ['bench', 'chairs', 'daybed', 'shade']],
+  ['Meet', ['table', 'picnic', 'stage', 'seats']],
+  ['Sport and play', ['pingpong', 'workout', 'balance', 'skate', 'climb', 'wave']],
+]
 
 export const RIBBON_KINDS = {
   path: { name: 'PATH', min: 1, shape: (L) => [[0, B], [L, B]] },
-  crossing: { name: 'CROSSING', min: 1, shape: (L) => [[0, B], [L, B]], note: 'lies flat on the street' },
-  bench: { name: 'BENCH', min: 1.6, shape: (L) => up(L, 0.3, 0.45), note: 'seat 45 cm' },
+  crossing: { name: 'CROSSING', min: 1, shape: (L) => [[0, B], [L, B]], note: 'Lies flat on the street.' },
+  bench: { name: 'BENCH', min: 1.6, shape: (L) => up(L, 0.3, 0.45), note: 'Seat 45 cm.' },
   chairs: {
     name: 'CHAIRS',
     min: 2.4,
-    note: 'seat 42 cm, back 95 cm, one every 2.4 m',
+    note: 'Seat 42 cm, back 95 cm, one every 2.4 m.',
     // seat, a leaning back, then the band slides back down to the ground
     shape: (L) => repeat(L, 2.4, [[0.2, B], [0.2, top(0.42)], [0.7, top(0.42)], [0.88, top(0.95)], [1.0, top(0.95)], [2.1, B]]),
   },
-  table: { name: 'TABLE', min: 1.6, shape: (L) => up(L, 0.3, 0.75), note: 'top 75 cm' },
+  daybed: {
+    name: 'DAYBED',
+    min: 2.4,
+    note: 'Lie down: 40 cm high, with a raised head end.',
+    shape: (L) => [[0, B], [0.3, B], [0.3, top(0.4)], [L - 0.8, top(0.4)], [L - 0.4, top(0.62)], [L - 0.3, top(0.62)], [L - 0.3, B], [L, B]],
+  },
+  table: { name: 'TABLE', min: 1.6, shape: (L) => up(L, 0.3, 0.75), note: 'Top 75 cm.' },
   picnic: {
     name: 'BENCH + TABLE',
     min: 3.6,
-    note: 'bench, table, bench',
+    note: 'Bench, table, bench.',
     shape: (L) => {
       const t = top(0.75)
       const s = top(0.45)
       return [[0, B], [0.25, B], [0.25, s], [0.75, s], [0.75, B], [1.05, B], [1.05, t], [L - 1.05, t], [L - 1.05, B], [L - 0.75, B], [L - 0.75, s], [L - 0.25, s], [L - 0.25, B], [L, B]]
     },
   },
+  stage: {
+    name: 'STAGE',
+    min: 3,
+    note: 'A 60 cm platform with two steps at each end, to talk, play or perform.',
+    shape: (L) => {
+      const up2 = steps(2, 0.3, 0.35, 0.2, B, 1)
+      const down2 = steps(2, 0.3, 0.35, L - 0.2 - 0.7, up2.at(-1)[1], -1)
+      return [[0, B], [0.2, B], ...up2, ...down2, [L, B]]
+    },
+  },
   shade: {
     name: 'SHADE',
     min: 3,
     wide: 1.7,
-    note: 'a wavy roof 2.6–3.0 m up, wider than the ribbon',
+    note: 'A wavy roof 2.6–3.0 m up, wider than the ribbon.',
     shape: (L) => {
       const a = 0.4
       const out = [[0, B], [a, B], [a, top(2.6)]]
@@ -103,32 +173,91 @@ export const RIBBON_KINDS = {
   stairs: {
     name: 'STAIRS',
     min: 3,
-    note: 'up to a lookout, 17 cm steps',
+    note: 'Up to a lookout and down again, 17 cm steps.',
     shape: (L) => {
       const n = Math.max(1, Math.min(8, Math.floor((L - 1) / 0.6)))
       const upS = steps(n, 0.17, 0.3, 0.2, B, 1)
-      const last = upS.at(-1)
-      const down = steps(n, 0.17, 0.3, L - 0.2 - n * 0.3, last[1], -1)
+      const down = steps(n, 0.17, 0.3, L - 0.2 - n * 0.3, upS.at(-1)[1], -1)
       return [[0, B], [0.2, B], ...upS, ...down, [L, B]]
     },
   },
   seats: {
     name: 'SEAT STEPS',
     min: 5,
-    note: 'three big steps to sit on, then a slope back down',
+    note: 'Three big steps to sit on, facing back along the ribbon, then a slope down.',
     shape: (L) => {
-      const n = 3
-      const rise = 0.45
-      const tread = 0.8
-      const up3 = steps(n, rise, tread, 0.2, B, 1)
+      const up3 = steps(3, 0.45, 0.8, 0.2, B, 1)
       const h = up3.at(-1)[1]
       return [[0, B], [0.2, B], ...up3, [Math.min(L - 0.4, up3.at(-1)[0] + 0.6), h], [L - 0.2, B], [L, B]]
     },
   },
+  pingpong: {
+    name: 'PING PONG',
+    min: 3.4,
+    wide: 0.64,
+    note: 'A 2.74 × 1.52 m table, 76 cm high, with a net.',
+    shape: (L) => {
+      const e = (L - 2.74) / 2
+      const m = L / 2
+      const t = top(0.76)
+      return [[0, B], [e, B], [e, t], [m - 0.02, t], [m - 0.02, top(0.91)], [m + 0.02, top(0.91)], [m + 0.02, t], [L - e, t], [L - e, B], [L, B]]
+    },
+  },
+  workout: {
+    name: 'WORKOUT BARS',
+    min: 2.4,
+    wide: 0.5,
+    note: 'Dip bars at 1.2 m and pull-up bars at 2.2 m, repeating.',
+    shape: (L) => repeat(L, 2.4, [[0.3, B], [0.3, top(1.2)], [0.75, top(1.2)], [0.75, B], [1.25, B], [1.25, top(2.2)], [1.7, top(2.2)], [1.7, B]]),
+  },
+  balance: {
+    name: 'BALANCE BEAM',
+    min: 3,
+    wide: 0.25,
+    note: 'The ribbon narrows to a beam that rises and dips between 30 and 60 cm.',
+    shape: (L) => {
+      const out = [[0, B], [0.3, B], [0.3, top(0.3)]]
+      const n = Math.max(4, Math.round((L - 0.6) / 0.3))
+      for (let i = 1; i < n; i++) {
+        const f = i / n
+        out.push([0.3 + f * (L - 0.6), top(0.3 + 0.3 * Math.sin(f * Math.PI * Math.max(1, Math.round(L / 4))) ** 2)])
+      }
+      out.push([L - 0.3, top(0.3)], [L - 0.3, B], [L, B])
+      return out
+    },
+  },
+  skate: {
+    name: 'SKATE RAMP',
+    min: 7,
+    note: 'A small half-pipe: 1 m decks, curved walls, a flat bottom.',
+    shape: (L) => {
+      const r = 1.4
+      const deck = 1.0
+      const x0 = r - Math.sqrt(r * r - (r - deck) ** 2) // where the curve reaches deck height
+      const curve = (from, dir) => {
+        const pts = []
+        for (let i = 0; i <= 12; i++) {
+          const x = x0 + ((r - x0) * i) / 12
+          const h = r - Math.sqrt(Math.max(0, r * r - (r - x) ** 2))
+          pts.push([from + dir * (x - x0), Math.max(B, top(h))])
+        }
+        return pts
+      }
+      const a = curve(0.9, 1)
+      const b = curve(L - 0.9, -1).reverse()
+      return [[0, B], [0.3, B], [0.3, top(deck)], [0.9, top(deck)], ...a, ...b, [L - 0.9, top(deck)], [L - 0.3, top(deck)], [L - 0.3, B], [L, B]]
+    },
+  },
+  climb: {
+    name: 'CLIMB + SLIDE',
+    min: 5,
+    note: 'Climb a 3 m wall, cross the top, slide back down.',
+    shape: (L) => [[0, B], [0.3, B], [0.3, top(3)], [1.1, top(3)], ...ease(1.1, L - 0.2, top(3), B, 14).slice(1), [L, B]],
+  },
   wave: {
     name: 'PLAY WAVE',
     min: 3,
-    note: 'humps to climb and slide, up to 70 cm',
+    note: 'Humps to climb and slide, up to 70 cm.',
     shape: (L) => {
       const out = []
       const n = Math.max(8, Math.round(L / 0.25))
@@ -143,47 +272,43 @@ export const RIBBON_KINDS = {
 }
 export const RIBBON_KIND_IDS = Object.keys(RIBBON_KINDS)
 
-// The ribbon as it starts. The two CROSSING pieces lie over the streets (measured against the street data).
-// The whole route is about 151 m: Stollberger Straße lies at 34–59 m, Haydnstraße at 110–120 m.
+// The ribbon as it starts, about 440 m. The three CROSSING pieces lie over the streets.
+const P = (kind, len) => ({ kind, len })
 export const DEFAULT_PIECES = [
-  // forecourt across Stollberger Straße
-  { kind: 'path', len: 2 },
-  { kind: 'shade', len: 9 },
-  { kind: 'picnic', len: 5 },
-  { kind: 'chairs', len: 4.8 },
-  { kind: 'bench', len: 5 },
-  { kind: 'path', len: 8.4 },
-  { kind: 'crossing', len: 25.2 },
-  // the garages
-  { kind: 'path', len: 1.6 },
-  { kind: 'stairs', len: 6 },
-  { kind: 'path', len: 1 },
-  { kind: 'table', len: 3 },
-  { kind: 'shade', len: 8 },
-  { kind: 'seats', len: 6 },
-  { kind: 'path', len: 1 },
-  { kind: 'wave', len: 6 },
-  { kind: 'bench', len: 4.5 },
-  { kind: 'chairs', len: 4.8 },
-  { kind: 'shade', len: 7 },
-  { kind: 'path', len: 1.9 },
-  { kind: 'crossing', len: 9.7 },
-  // across Haydnstraße
-  { kind: 'path', len: 2 },
-  { kind: 'bench', len: 4.5 },
-  { kind: 'shade', len: 8 },
-  { kind: 'picnic', len: 5 },
-  { kind: 'path', len: 11.6 },
+  // the green wedge at Parkstraße / Haydnstraße: a place to rest
+  P('path', 2), P('daybed', 3), P('bench', 4), P('path', 3), P('shade', 8), P('chairs', 4.8), P('path', 4.7),
+  P('crossing', 11.2), // Parkstraße
+  // along Haydnstraße: sport
+  P('path', 3), P('balance', 8), P('path', 2.3), P('workout', 7.2), P('path', 2), P('climb', 6), P('path', 2), P('bench', 4), P('path', 7.8),
+  // the yard between R5 and R6: shade, a long table, ping pong
+  P('shade', 7), P('picnic', 5), P('path', 2), P('pingpong', 4), P('path', 2), P('pingpong', 4), P('bench', 4),
+  // past R7 and along the south lane: skate and play
+  P('path', 22), P('skate', 10), P('path', 2), P('wave', 6), P('path', 7),
+  // the yard between R10 and R12: a stage with seat steps facing it
+  P('stage', 6), P('seats', 6), P('path', 6),
+  // the corner at Richard-Wagner-Straße: a meeting spot
+  P('shade', 7), P('picnic', 5), P('bench', 4), P('path', 6),
+  // along Stollberger Straße: sit and watch the street
+  P('chairs', 7.2), P('path', 2), P('daybed', 3), P('path', 2), P('chairs', 4.8), P('path', 6),
+  // round R8 and through the yard between R1 and R2
+  P('stairs', 6), P('path', 4), P('bench', 4), P('path', 12), P('picnic', 5), P('shade', 8), P('wave', 6), P('path', 6), P('bench', 4), P('path', 8),
+  P('crossing', 10.5), // Haydnstraße
+  // the green strips
+  P('path', 3), P('daybed', 3), P('path', 3), P('bench', 4), P('path', 5), P('chairs', 4.8), P('path', 2.7), P('balance', 6), P('path', 9),
+  P('crossing', 27.2), // Stollberger Straße and the tram
+  // the green under the school: play, an outdoor classroom, shade, rest
+  P('path', 4), P('wave', 6), P('path', 2), P('climb', 6), P('path', 3), P('skate', 9), P('path', 3), P('seats', 6), P('path', 2),
+  P('shade', 9), P('picnic', 5), P('path', 3), P('daybed', 3), P('bench', 4), P('path', 10.5),
 ]
-export const DEFAULT_RIBBON = { on: true, width: DEFAULT_WIDTH, pieces: DEFAULT_PIECES }
+export const DEFAULT_RIBBON = { v: VERSION, on: true, width: DEFAULT_WIDTH, pieces: DEFAULT_PIECES }
 
 export function cleanRibbon(r) {
-  if (!r || !Array.isArray(r.pieces)) return DEFAULT_RIBBON
+  if (!r || !Array.isArray(r.pieces) || r.v !== VERSION) return DEFAULT_RIBBON
   const pieces = r.pieces
     .filter((p) => p && RIBBON_KINDS[p.kind])
     .map((p) => ({ kind: p.kind, len: Math.max(RIBBON_KINDS[p.kind].min, Math.round((+p.len || 0) * 10) / 10) }))
   const width = +r.width >= 0.6 && +r.width <= 8 ? +r.width : DEFAULT_WIDTH
-  return { on: r.on !== false, width, pieces: pieces.length ? pieces : DEFAULT_PIECES }
+  return { v: VERSION, on: r.on !== false, width, pieces: pieces.length ? pieces : DEFAULT_PIECES }
 }
 
 // The plan curve, in three.js space (x east, z south).
