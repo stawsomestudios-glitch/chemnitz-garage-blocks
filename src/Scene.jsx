@@ -84,28 +84,28 @@ function Context({ site }) {
       tram: ribbon(by('tram'), 1.6, -0.06),
     }
   }, [site])
-  const m = (g, color, double) =>
+  const m = (g, color, double, layer) =>
     g && (
-      <mesh geometry={g} receiveShadow castShadow={double === 'cast'}>
+      <mesh geometry={g} receiveShadow castShadow={double === 'cast'} userData={{ layer: `Context - ${layer}` }}>
         <meshStandardMaterial color={color} side={double === true ? THREE.DoubleSide : THREE.FrontSide} />
       </mesh>
     )
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.2, 0]} receiveShadow>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.2, 0]} receiveShadow userData={{ layer: 'Context - ground' }}>
         <planeGeometry args={[1400, 1400]} />
         <meshStandardMaterial color="#e8e5dc" />
       </mesh>
-      {m(geo.green, '#c4d4a8')}
-      {m(geo.parking, '#d2d0ca')}
-      {m(geo.site, '#d9d3c3')}
-      {m(geo.road, '#b1b0ac', true)}
-      {m(geo.lane, '#c6c3ba', true)}
-      {m(geo.path, '#f1eee6', true)}
-      {m(geo.tram, '#b5484a', true)}
-      {m(geo.home, '#f3f1ec', 'cast')}
-      {m(geo.other, '#dfe2e5', 'cast')}
-      {m(geo.garage, '#cfccc4', 'cast')}
+      {m(geo.green, '#c4d4a8', false, 'green')}
+      {m(geo.parking, '#d2d0ca', false, 'parking')}
+      {m(geo.site, '#d9d3c3', false, 'garage site')}
+      {m(geo.road, '#b1b0ac', true, 'streets')}
+      {m(geo.lane, '#c6c3ba', true, 'lanes')}
+      {m(geo.path, '#f1eee6', true, 'footpaths')}
+      {m(geo.tram, '#b5484a', true, 'tram')}
+      {m(geo.home, '#f3f1ec', 'cast', 'homes')}
+      {m(geo.other, '#dfe2e5', 'cast', 'other buildings')}
+      {m(geo.garage, '#cfccc4', 'cast', 'other garages')}
     </group>
   )
 }
@@ -140,8 +140,8 @@ function Passages({ pass }) {
       const g = BY_ID[id]
       const open = pass.open[id] ?? new Set()
       const at = (a, b) => [g.x + g.u[0] * a + g.n[0] * b, g.y + g.u[1] * a + g.n[1] * b]
-      const add = (a, b, y, size) => out.push({ p: at(a, b), y, size, angle: g.angle })
-      out.push({ p: at(0, 0), y: H - 0.06, size: [MODULE.width, 0.12, MODULE.depth], angle: g.angle, roof: true }) // see-through roof, so the ribbon inside shows
+      const add = (a, b, y, size) => out.push({ p: at(a, b), y, size, angle: g.angle, id })
+      out.push({ p: at(0, 0), y: H - 0.06, size: [MODULE.width, 0.12, MODULE.depth], angle: g.angle, roof: true, id }) // see-through roof, so the ribbon inside shows
       const keep = (face, nb) => !open.has(face) && !(nb && pass.ids.has(nb))
       if (keep('front')) add(0, 3 - t / 2, H / 2, [MODULE.width, H, t])
       if (keep('back', g.back)) add(0, -3 + t / 2, H / 2, [MODULE.width, H, t])
@@ -151,7 +151,7 @@ function Passages({ pass }) {
     return out
   }, [pass])
   return parts.map((q, i) => (
-    <mesh key={i} position={[q.p[0], q.y, -q.p[1]]} rotation={[0, q.angle, 0]} scale={q.size} geometry={box} castShadow={!q.roof} receiveShadow userData={{ stack: true }} renderOrder={q.roof ? 2 : 0}>
+    <mesh key={i} position={[q.p[0], q.y, -q.p[1]]} rotation={[0, q.angle, 0]} scale={q.size} geometry={box} castShadow={!q.roof} receiveShadow userData={{ stack: true, layer: q.roof ? 'Garages - cleared, roofs' : 'Garages - cleared for the ribbon', name: q.id }} renderOrder={q.roof ? 2 : 0}>
       {q.roof ? (
         <meshStandardMaterial color="#cfe0f0" transparent opacity={0.35} depthWrite={false} roughness={0.1} />
       ) : (
@@ -219,6 +219,8 @@ function Garages({ title, block, picked, onPick, connecting, pass }) {
     if (e.delta > 6) return // that was a drag to turn the view, not a click
     onPick(GARAGES[list[e.instanceId]].id, e.shiftKey || e.ctrlKey || e.metaKey)
   }
+  // names for the Rhino file: garage number and title
+  const names = (list, suffix = '') => list.map((i) => `${GARAGES[i].id}${title[GARAGES[i].id] ? ' ' + TITLE[title[GARAGES[i].id]].name : ''}${suffix}`)
   const over = () => (document.body.style.cursor = 'pointer')
   const out = () => (document.body.style.cursor = '')
   return (
@@ -226,13 +228,13 @@ function Garages({ title, block, picked, onPick, connecting, pass }) {
       {lists.car.map((i) => (
         <CarGarage key={GARAGES[i].id} g={GARAGES[i]} s={placed[i]} colour={TITLE.car.color} sel={picked.has(GARAGES[i].id)} onPick={onPick} connecting={connecting} />
       ))}
-      <instancedMesh ref={body} args={[box, null, GARAGES.length]} userData={{ stack: true }} castShadow receiveShadow onClick={click(lists.solid)} onPointerOver={over} onPointerOut={out}>
+      <instancedMesh ref={body} args={[box, null, GARAGES.length]} userData={{ stack: true, layer: 'Garages', names: names(lists.solid) }} castShadow receiveShadow onClick={click(lists.solid)} onPointerOver={over} onPointerOut={out}>
         <meshStandardMaterial roughness={0.8} />
       </instancedMesh>
-      <instancedMesh ref={door} args={[box, null, GARAGES.length]} onClick={click(lists.solid)}>
+      <instancedMesh ref={door} args={[box, null, GARAGES.length]} userData={{ layer: 'Garages - doors', names: names(lists.solid, ' door') }} onClick={click(lists.solid)}>
         <meshStandardMaterial roughness={0.6} />
       </instancedMesh>
-      <instancedMesh ref={glass} args={[box, null, GARAGES.length]} userData={{ stack: true }} renderOrder={2} onClick={click(lists.clear)} onPointerOver={over} onPointerOut={out}>
+      <instancedMesh ref={glass} args={[box, null, GARAGES.length]} userData={{ stack: true, layer: 'Garages - see-through', names: names(lists.clear) }} renderOrder={2} onClick={click(lists.clear)} onPointerOver={over} onPointerOut={out}>
         <meshStandardMaterial transparent opacity={0.22} depthWrite={false} side={THREE.DoubleSide} roughness={0.1} />
       </instancedMesh>
     </>

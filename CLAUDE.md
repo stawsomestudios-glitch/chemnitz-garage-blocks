@@ -17,3 +17,5 @@ All 115 garages of complex G3, Helbersdorf, Chemnitz (Haydnstraße / Stollberger
 The cobalt ribbon (route, piece kinds, starting layout, street positions) is in `src/ribbon.js`; it is drawn by `src/Ribbon.jsx`. If you change `ROUTE`, re-measure where it crosses streets and update `STREETS` and the CROSSING pieces.
 
 Garages the ribbon passes through are found automatically from `ROUTE` (`passages()` in `src/ribbon.js`) and drawn as cleared shells (roof see-through, inside walls removed) in `src/Scene.jsx`.
+
+Download Rhino 8 model (Save section): `src/export3dm.js` turns the three.js scene into a .3dm with rhino3dm (loaded only on click). Meshes go on layers named by `userData.layer`; `userData.noExport` leaves helpers out.

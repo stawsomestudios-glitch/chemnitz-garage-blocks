@@ -286,6 +286,25 @@ export default function App() {
     for (const g of GARAGES) rows.push([g.id, g.row, g.num, title[g.id] ? TITLE[title[g.id]].name : '', block[g.id] ?? ''])
     download('chemnitz-garages.csv', rows.map((r) => r.map((c) => `"${c}"`).join(',')).join('\n'), 'text/csv')
   }
+  // The whole 3D model, as it is on screen, as a Rhino 8 file. Titles become text dots above the garages.
+  const [saving, setSaving] = useState(false)
+  const exportRhino = async () => {
+    const scene = api.current?.scene
+    if (!scene) return
+    setSaving(true)
+    try {
+      const dots = GARAGES.filter((g) => title[g.id]).map((g) => ({ text: TITLE[title[g.id]].name, x: g.x, y: g.y, z: 3.6 }))
+      for (const it of items) if (it.title && TITLE[it.title]) dots.push({ text: TITLE[it.title].name, x: it.x, y: it.y, z: it.z + dims(it).h + 0.6 })
+      const { export3dm } = await import('./export3dm.js')
+      const r = await export3dm({ scene, dots, filename: 'chemnitz-garage-blocks.3dm' })
+      setNote(`Rhino 8 file saved: ${r.objects} objects and ${r.dots} titles, in metres.`)
+    } catch (e) {
+      console.error(e)
+      setNote('The Rhino file could not be made. Try again, or reload the page.')
+    }
+    setSaving(false)
+  }
+
   const loadFile = (e) => {
     const f = e.target.files[0]
     if (!f) return
@@ -597,6 +616,7 @@ export default function App() {
               <button onClick={() => download('chemnitz-garage-plan.json', JSON.stringify(plan, null, 1), 'application/json')}>Download plan</button>
               <button onClick={() => file.current.click()}>Open plan…</button>
               <button onClick={exportCsv}>Download list (CSV)</button>
+              <button className="primary" disabled={saving} onClick={exportRhino}>{saving ? 'Preparing the Rhino file…' : 'Download Rhino 8 model (.3dm)'}</button>
               <button className="danger" onClick={reset}>Start over</button>
               <input ref={file} type="file" accept=".json,application/json" hidden onChange={loadFile} />
             </div>

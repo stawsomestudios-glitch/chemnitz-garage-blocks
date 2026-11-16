@@ -65,6 +65,7 @@ export function CarGarage({ g, s, colour, sel, onPick, connecting }) {
   const car = useMemo(() => carParts(carColour(g.id)), [g.id])
   return (
     <group
+      userData={{ layer: 'Garages - car garage' }}
       position={[s.x, 0, -s.y]}
       rotation={[0, Math.atan2(g.n[0], -g.n[1]), 0]}
       onClick={(e) => {
@@ -74,7 +75,7 @@ export function CarGarage({ g, s, colour, sel, onPick, connecting }) {
       }}
     >
       <Parts parts={parts} />
-      <group position={[0, 0.04, -0.4]}>
+      <group position={[0, 0.04, -0.4]} userData={{ layer: 'Cars' }}>
         <Parts parts={car} />
       </group>
     </group>
@@ -98,6 +99,7 @@ export function Elements({ items, picked, onSelect, onMove, snap, connecting }) 
     return (
       <group
         key={it.id}
+        userData={{ layer: `Elements - ${KINDS[it.kind].name}` }}
         position={[it.x, it.z, -it.y]}
         rotation={[0, (it.rot * PI) / 180, 0]}
         onClick={(e) => !connecting && e.stopPropagation()}
@@ -141,7 +143,7 @@ export function Elements({ items, picked, onSelect, onMove, snap, connecting }) 
           <Parts parts={partsOf(it)} item={it.id} />
         </group>
         {picked.has(it.id) && (
-          <mesh position={[0, 0.04, 0]} rotation={[-PI / 2, 0, 0]} renderOrder={3}>
+          <mesh position={[0, 0.04, 0]} rotation={[-PI / 2, 0, 0]} renderOrder={3} userData={{ noExport: true }}>
             <planeGeometry args={[size.w + 0.6, size.d + 0.6]} />
             <meshBasicMaterial color="#ff7a1a" transparent opacity={0.45} depthWrite={false} />
           </mesh>
@@ -171,6 +173,7 @@ function Dots({ points, color, size, onTop, onPick }) {
   return (
     <instancedMesh
       key={points.length}
+      userData={{ noExport: true }}
       ref={ref}
       args={[DOT, null, Math.max(points.length, 1)]}
       renderOrder={6}
@@ -219,6 +222,8 @@ export function ViewApi({ api }) {
   const { camera, gl, controls, scene } = useThree()
   const rc = useMemo(() => new THREE.Raycaster(), [])
   api.current = {
+    ...api.current,
+    scene,
     landAt(clientX, clientY) {
       const r = gl.domElement.getBoundingClientRect()
       rc.setFromCamera(new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1), camera)
