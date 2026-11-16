@@ -352,7 +352,7 @@ export function cleanRibbon(r) {
   if (!r || !Array.isArray(r.pieces) || r.v !== VERSION) return DEFAULT_RIBBON
   const pieces = r.pieces
     .filter((p) => p && RIBBON_KINDS[p.kind])
-    .map((p) => ({ kind: p.kind, len: Math.max(RIBBON_KINDS[p.kind].min, Math.round((+p.len || 0) * 10) / 10) }))
+    .map((p) => ({ kind: p.kind, len: Math.max(RIBBON_KINDS[p.kind].min, Math.round((+p.len || 0) * 10) / 10), ...(p.flip ? { flip: true } : {}) }))
   const width = +r.width >= 0.6 && +r.width <= 8 ? +r.width : DEFAULT_WIDTH
   return { v: VERSION, on: r.on !== false, width, pieces: pieces.length ? pieces : DEFAULT_PIECES }
 }
@@ -369,7 +369,7 @@ export function layout(pieces, total) {
   pieces.forEach((p, i) => {
     if (s >= total - 0.01) return
     const len = Math.min(p.len, total - s)
-    out.push({ i, kind: p.kind, s0: s, s1: s + len })
+    out.push({ i, kind: p.kind, s0: s, s1: s + len, flip: !!p.flip })
     s += len
   })
   if (s < total - 0.01) out.push({ i: -1, kind: 'path', s0: s, s1: total }) // the rest lies flat
@@ -414,7 +414,9 @@ export function buildRibbon(ribbon, route = ROUTE) {
   for (const [k, p] of parts.entries()) {
     const L = p.s1 - p.s0
     const kind = RIBBON_KINDS[p.kind]
-    const shape = L >= kind.min - 0.01 ? kind.shape(L) : [[0, B], [L, B]]
+    let shape = L >= kind.min - 0.01 ? kind.shape(L) : [[0, B], [L, B]]
+    // flipped: the same piece mirrored end to end, so stairs, ramps and seats face the other way
+    if (p.flip) shape = shape.map(([a, h]) => [L - a, h]).reverse()
     const pts = soften(shape)
     for (let j = 0; j < pts.length; j++) {
       const s = p.s0 + Math.min(L, Math.max(0, pts[j][0]))
@@ -460,7 +462,9 @@ export function buildRibbon(ribbon, route = ROUTE) {
     const nrm = new THREE.Vector3(T.x * -dh, ds, T.z * -dh) // the band's own "up", tipped with the fold
     const w = widthAt(s, k)
     const kind = RIBBON_KINDS[parts[k].kind]
-    const g = kind.slot ? Math.min(w - 0.3, Math.max(0, kind.slot(s - parts[k].s0, parts[k].s1 - parts[k].s0))) : 0
+    const pl = parts[k].s1 - parts[k].s0
+    const sl = parts[k].flip ? parts[k].s1 - s : s - parts[k].s0
+    const g = kind.slot ? Math.min(w - 0.3, Math.max(0, kind.slot(sl, pl))) : 0
     return { P: P.setY(h), side, nrm, w, g, k }
   })
 

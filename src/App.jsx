@@ -193,7 +193,7 @@ export default function App() {
     setRibbon((r) => {
       const p = r.pieces[i]
       const half = Math.round((p.len / 2) * 10) / 10
-      return { ...r, pieces: [...r.pieces.slice(0, i), { kind: p.kind, len: half }, { kind: 'path', len: Math.round((p.len - half) * 10) / 10 }, ...r.pieces.slice(i + 1)] }
+      return { ...r, pieces: [...r.pieces.slice(0, i), { ...p, len: half }, { kind: 'path', len: Math.round((p.len - half) * 10) / 10 }, ...r.pieces.slice(i + 1)] }
     })
   const deletePiece = (i) => {
     setRibbon((r) => ({ ...r, pieces: r.pieces.length > 1 ? r.pieces.filter((_, k) => k !== i) : r.pieces }))
@@ -257,6 +257,7 @@ export default function App() {
         setChosen(null)
       }
       if ((e.key === 'c' || e.key === 'C') && selItems.length === 1) startConnect()
+      if ((e.key === 'f' || e.key === 'F') && piece) editPiece(chosen, { flip: !piece.flip })
       if (e.key === 'l' || e.key === 'L') lock()
       if (e.key === 'u' || e.key === 'U') unlock()
       if ((e.key === 'Delete' || e.key === 'Backspace') && selItems.length) removeItems()
@@ -427,7 +428,7 @@ export default function App() {
           {piece && (
             <section className="piece">
               <h2>
-                <span className="dot" style={{ background: COBALT }} /> Ribbon piece {chosen + 1} of {ribbon.pieces.length}: {RIBBON_KINDS[piece.kind].name}
+                <span className="dot" style={{ background: COBALT }} /> Ribbon piece {chosen + 1} of {ribbon.pieces.length}: {RIBBON_KINDS[piece.kind].name}{piece.flip ? ' (flipped)' : ''}
               </h2>
               <p className="muted">
                 From {startAt.toFixed(1)} m to {(startAt + piece.len).toFixed(1)} m along the ribbon. {RIBBON_KINDS[piece.kind].note ?? ''}
@@ -461,6 +462,7 @@ export default function App() {
                 <button className="primary" onClick={() => setView({ name: 'piece', i: chosen, t: Date.now() })}>Zoom to it</button>
                 <button disabled={chosen === 0} onClick={() => setChosen(chosen - 1)}>← Previous</button>
                 <button disabled={chosen >= ribbon.pieces.length - 1} onClick={() => setChosen(chosen + 1)}>Next →</button>
+                <button className={piece.flip ? 'on' : ''} onClick={() => editPiece(chosen, { flip: !piece.flip })} title="Mirror this piece end to end (key F)">⇄ Flip</button>
                 <button onClick={() => splitPiece(chosen)}>Split in two</button>
                 <button className="danger" disabled={ribbon.pieces.length < 2} onClick={() => deletePiece(chosen)}>Delete piece</button>
               </div>
@@ -493,7 +495,7 @@ export default function App() {
                 <li key={i}>
                   <button className={i === chosen ? 'on' : ''} onClick={() => pickPiece(i)}>
                     <span>{RIBBON_KINDS[p.kind].name}</span>
-                    <small>{p.len} m</small>
+                    <small>{p.flip ? '⇄ ' : ''}{p.len} m</small>
                   </button>
                 </li>
               ))}
