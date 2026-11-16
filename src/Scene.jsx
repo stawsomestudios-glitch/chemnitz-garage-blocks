@@ -7,6 +7,8 @@ import { GARAGES, BY_ID, MODULE } from './garages.js'
 import { TITLE, EMPTY_COLOR } from './titles.js'
 import { CarGarage, ConnectDots, Elements, ViewApi } from './Elements.jsx'
 import { KINDS, dims } from './elements.js'
+import Ribbon from './Ribbon.jsx'
+import { COBALT, RIBBON_KINDS, buildRibbon } from './ribbon.js'
 
 // Map metres (east, north) become three.js (x = east, y = up, z = south).
 const HOME = [-92, 80, -104]
@@ -242,15 +244,17 @@ function Camera({ view }) {
   const { camera, controls } = useThree()
   useEffect(() => {
     if (!controls || !view) return
-    camera.position.set(...(view.name === 'plan' ? [-3, 165, -4.99] : HOME))
-    controls.target.set(...TARGET)
+    // the Ribbon view looks from the north, over the forecourt, so the whole ribbon is in view
+    const [pos, target] = view.name === 'plan' ? [[-3, 165, -4.99], TARGET] : view.name === 'ribbon' ? [[16, 100, -192], [10, 0, -42]] : [HOME, TARGET]
+    camera.position.set(...pos)
+    controls.target.set(...target)
     controls.update()
   }, [view, camera, controls])
   return null
 }
 
 // One title per locked block, or per single garage. Selected ones first, so they are never hidden.
-function useItems({ title, block, picked, labels, items }) {
+function useItems({ title, block, picked, labels, items, tags, chosen }) {
   return useMemo(() => {
     if (labels === 'off') return []
     const groups = new Map()
@@ -286,13 +290,21 @@ function useItems({ title, block, picked, labels, items }) {
           const sel = picked.has(it.id)
           list.push({ key: `${it.id}|${it.title}`, first: it.id, p: [it.x, it.z + dims(it).h + 1.1, -it.y], text: TITLE[it.title].name, color: TITLE[it.title].color, block: true, sel, rank: sel ? 0 : 2, order: 999 })
         }
+    // the ribbon's pieces (flat path pieces stay unlabelled unless picked)
+    if (labels === 'titles')
+      for (const t of tags) {
+        const sel = t.i === chosen
+        if (t.kind === 'path' && !sel) continue
+        list.push({ key: `rb${t.i}|${t.kind}`, piece: t.i, p: t.p, text: RIBBON_KINDS[t.kind].name, color: COBALT, ribbon: true, sel, rank: sel ? 0 : 2, order: 2000 + t.i })
+      }
     const order = (x) => x.order ?? BY_ID[x.first].i
     return list.sort((a, b) => a.rank - b.rank || order(a) - order(b))
-  }, [title, block, picked, labels, items])
+  }, [title, block, picked, labels, items, tags, chosen])
 }
 
-export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget }) {
-  const tags = useItems({ title, block, picked, labels, items })
+export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget, ribbon, chosen, onPickPiece }) {
+  const built = useMemo(() => (ribbon.on ? buildRibbon(ribbon) : null), [ribbon])
+  const tags = useItems({ title, block, picked, labels, items, tags: built?.tags ?? [], chosen })
   const refs = useRef([])
   const down = useRef([0, 0])
   return (
@@ -337,6 +349,7 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
         />
         <Context site={site} />
         <Garages title={title} block={block} picked={picked} onPick={onPick} connecting={!!connect} />
+        {built && <Ribbon built={built} chosen={chosen} onPickPiece={onPickPiece} connecting={!!connect} />}
         <Elements items={items} picked={picked} onSelect={onSelectItem} onMove={onMoveItem} snap={snap} connecting={!!connect} />
         <ConnectDots connect={connect} items={items} onGrip={onGrip} onTarget={onTarget} />
         <ViewApi api={api} />
@@ -349,9 +362,9 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
           <button
             key={it.key}
             ref={(el) => (refs.current[i] = el)}
-            className={['tag', it.empty && 'empty', it.block && 'block', it.sel && 'sel'].filter(Boolean).join(' ')}
+            className={['tag', it.empty && 'empty', it.block && 'block', it.ribbon && 'ribbon', it.sel && 'sel'].filter(Boolean).join(' ')}
             style={{ '--c': it.color ?? '#b9b4a9' }}
-            onClick={(e) => it.first && onPick(it.first, e.shiftKey || e.ctrlKey || e.metaKey)}
+            onClick={(e) => (it.ribbon ? onPickPiece(it.piece) : it.first && onPick(it.first, e.shiftKey || e.ctrlKey || e.metaKey))}
           >
             {it.text}
           </button>

@@ -3,11 +3,12 @@ import Scene from './Scene.jsx'
 import { GARAGES, BY_ID, ROW_IDS, connected, label } from './garages.js'
 import { TITLES, TITLE } from './titles.js'
 import { KINDS, KIND_IDS, alignRot, dims, placeByGrip, snapPoint } from './elements.js'
+import { COBALT, DEFAULT_RIBBON, RIBBON_KINDS, RIBBON_KIND_IDS, cleanRibbon } from './ribbon.js'
 
 const BASE = import.meta.env.BASE_URL
 const KEY = 'chemnitz-garage-blocks-v1'
 const ALL = GARAGES.map((g) => g.id)
-const EMPTY = { title: {}, block: {}, items: [] }
+const EMPTY = { title: {}, block: {}, items: [], ribbon: DEFAULT_RIBBON }
 const newId = () => 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 
 // Your plan is kept in this browser so it is still there next time.
@@ -34,7 +35,7 @@ function clean(s) {
       for (const k of ['sw', 'sd', 'sh']) if (+it[k] > 0) out[k] = +it[k]
       return out
     })
-  return { title, block, items }
+  return { title, block, items, ribbon: cleanRibbon(s.ribbon) }
 }
 function download(name, text, type) {
   const a = document.createElement('a')
@@ -55,9 +56,10 @@ export default function App() {
   const [note, setNote] = useState(null)
   const [snap, setSnap] = useState('grid')
   const [connect, setConnect] = useState(null) // null, or { stage: 'grip' | 'target', id, grip }
+  const [chosen, setChosen] = useState(null) // the ribbon piece you clicked, by its number
   const file = useRef()
   const api = useRef(null)
-  const { title, block, items } = plan
+  const { title, block, items, ribbon } = plan
 
   useEffect(() => {
     fetch(`${BASE}data/site.json`)
@@ -86,6 +88,7 @@ export default function App() {
   const withBlocks = (ids) => [...new Set(ids.flatMap(members))]
 
   const pick = (id, add) => {
+    setChosen(null)
     const m = members(id)
     setPicked((old) => {
       if (!(add || multi)) return new Set(m)
@@ -177,6 +180,36 @@ export default function App() {
     setNote('Connected.')
   }
 
+  // ----- the ribbon -----
+  const setRibbon = (fn) => setPlan((p) => ({ ...p, ribbon: fn(p.ribbon) }))
+  const pickPiece = (i) => {
+    if (i == null || i < 0) return
+    setChosen(i)
+    setPicked(new Set())
+  }
+  const editPiece = (i, change) =>
+    setRibbon((r) => ({ ...r, pieces: r.pieces.map((p, k) => (k === i ? { ...p, ...change, len: Math.max(RIBBON_KINDS[change.kind ?? p.kind].min, change.len ?? p.len) } : p)) }))
+  const splitPiece = (i) =>
+    setRibbon((r) => {
+      const p = r.pieces[i]
+      const half = Math.round((p.len / 2) * 10) / 10
+      return { ...r, pieces: [...r.pieces.slice(0, i), { kind: p.kind, len: half }, { kind: 'path', len: Math.round((p.len - half) * 10) / 10 }, ...r.pieces.slice(i + 1)] }
+    })
+  const deletePiece = (i) => {
+    setRibbon((r) => ({ ...r, pieces: r.pieces.length > 1 ? r.pieces.filter((_, k) => k !== i) : r.pieces }))
+    setChosen(null)
+  }
+  const resetRibbon = () => {
+    if (!confirm('Put the ribbon back the way it started?')) return
+    setRibbon(() => DEFAULT_RIBBON)
+    setChosen(null)
+  }
+  const ribbonLen = ribbon.pieces.reduce((a, p) => a + p.len, 0)
+  const piece = chosen != null ? ribbon.pieces[chosen] : null
+  const startAt = chosen != null ? ribbon.pieces.slice(0, chosen).reduce((a, p) => a + p.len, 0) : 0
+  const setLen = (e) => +e.target.value > 0 && editPiece(chosen, { len: Math.round(+e.target.value * 10) / 10 })
+  const setWidth = (e) => +e.target.value >= 0.6 && setRibbon((r) => ({ ...r, width: Math.min(8, Math.round(+e.target.value * 10) / 10) }))
+
   const addMiddle = (kind) => {
     const p = api.current?.centre()
     if (p) addItem(kind, p)
@@ -198,7 +231,7 @@ export default function App() {
         b[g] = id
         if (keep) t[g] = keep
       }
-      return { title: t, block: b }
+      return { ...p, title: t, block: b }
     })
     setPicked(new Set(ids))
     setNote(ranked.length > 1 ? `Locked ${ids.length} garages. They had different titles, so all are now ${TITLE[keep].name}.` : `Locked ${ids.length} garages into one block.`)
@@ -220,6 +253,7 @@ export default function App() {
       if (e.key === 'Escape') {
         if (connect) return setConnect(null)
         setPicked(new Set())
+        setChosen(null)
       }
       if ((e.key === 'c' || e.key === 'C') && selItems.length === 1) startConnect()
       if (e.key === 'l' || e.key === 'L') lock()
@@ -263,9 +297,10 @@ export default function App() {
     e.target.value = ''
   }
   const reset = () => {
-    if (!confirm('Clear every title, block and added element?')) return
+    if (!confirm('Clear every title, block and added element, and reset the ribbon?')) return
     setPlan(EMPTY)
     setPicked(new Set())
+    setChosen(null)
   }
 
   if (error) return <p className="message">The site data didn’t load ({error}).</p>
@@ -277,9 +312,14 @@ export default function App() {
     <div className="app">
       <main className="stage">
         <Scene
-          site={site} title={title} block={block} picked={picked} onPick={pick} onClear={() => !connect && setPicked(new Set())} labels={labels} view={view}
+          site={site} title={title} block={block} picked={picked} onPick={pick} onClear={() => {
+            if (connect) return
+            setPicked(new Set())
+            setChosen(null)
+          }} labels={labels} view={view}
           items={items} onSelectItem={pick} onMoveItem={moveItem} onDropKind={addItem} snap={snap} api={api}
           connect={connect} onGrip={onGrip} onTarget={onTarget}
+          ribbon={ribbon} chosen={chosen} onPickPiece={pickPiece}
         />
         {connect && (
           <div className="connect-bar" role="status">
@@ -305,6 +345,7 @@ export default function App() {
           <div className="seg-group" role="group" aria-label="Camera">
             <button onClick={() => setView({ name: 'home', t: Date.now() })}>3D</button>
             <button onClick={() => setView({ name: 'plan', t: Date.now() })}>Plan</button>
+            <button onClick={() => setView({ name: 'ribbon', t: Date.now() })}>Ribbon</button>
           </div>
           <div className="seg-group" role="group" aria-label="Labels">
             {[['titles', 'Titles'], ['numbers', 'Numbers'], ['off', 'Off']].map(([k, l]) => (
@@ -379,6 +420,76 @@ export default function App() {
               </button>
               <button disabled={!selBlocks.size} onClick={unlock}>Unlock</button>
               <button disabled={!sel.length && !selItems.length} onClick={() => setPicked(new Set())}>Deselect</button>
+            </div>
+          </section>
+
+          {piece && (
+            <section className="piece">
+              <h2>
+                <span className="dot" style={{ background: COBALT }} /> Ribbon piece {chosen + 1} of {ribbon.pieces.length}: {RIBBON_KINDS[piece.kind].name}
+              </h2>
+              <p className="muted">
+                From {startAt.toFixed(1)} m to {(startAt + piece.len).toFixed(1)} m along the ribbon. {RIBBON_KINDS[piece.kind].note ?? ''}
+              </p>
+              <div className="titles ribbon-kinds">
+                {RIBBON_KIND_IDS.map((k) => (
+                  <button key={k} className={piece.kind === k ? 'on' : ''} onClick={() => editPiece(chosen, { kind: k })}>
+                    {RIBBON_KINDS[k].name}
+                  </button>
+                ))}
+              </div>
+              <div className="sizes">
+                <label>
+                  <span>Length</span>
+                  <input
+                    key={chosen + '-' + piece.len}
+                    type="number" min={RIBBON_KINDS[piece.kind].min} step="0.5"
+                    defaultValue={piece.len}
+                    onBlur={setLen}
+                    onKeyDown={(e) => e.key === 'Enter' && setLen(e)}
+                  />
+                  <small>m</small>
+                </label>
+              </div>
+              <div className="actions">
+                <button disabled={chosen === 0} onClick={() => setChosen(chosen - 1)}>← Previous</button>
+                <button disabled={chosen >= ribbon.pieces.length - 1} onClick={() => setChosen(chosen + 1)}>Next →</button>
+                <button onClick={() => splitPiece(chosen)}>Split in two</button>
+                <button className="danger" disabled={ribbon.pieces.length < 2} onClick={() => deletePiece(chosen)}>Delete piece</button>
+              </div>
+              <p className="muted small">Pieces after this one slide along when you change its length. Keep the CROSSING pieces over the streets: Stollberger Straße is at 34–59 m, Haydnstraße at 110–120 m.</p>
+            </section>
+          )}
+
+          <section>
+            <h2><span className="dot" style={{ background: COBALT }} /> Ribbon</h2>
+            <p className="muted">One continuous cobalt band from across Stollberger Straße, through the garages, to across Haydnstraße. It folds into shade, benches, chairs, tables, stairs … Click it in the model to change a piece.</p>
+            <label className="check">
+              <input type="checkbox" checked={ribbon.on} onChange={(e) => setRibbon((r) => ({ ...r, on: e.target.checked }))} /> Show the ribbon
+            </label>
+            <div className="sizes">
+              <label>
+                <span>Width</span>
+                <input key={ribbon.width} type="number" min="0.6" max="8" step="0.2" defaultValue={ribbon.width} onBlur={setWidth} onKeyDown={(e) => e.key === 'Enter' && setWidth(e)} />
+                <small>m</small>
+              </label>
+            </div>
+            <ol className="pieces">
+              {ribbon.pieces.map((p, i) => (
+                <li key={i}>
+                  <button className={i === chosen ? 'on' : ''} onClick={() => pickPiece(i)}>
+                    <span>{RIBBON_KINDS[p.kind].name}</span>
+                    <small>{p.len} m</small>
+                  </button>
+                </li>
+              ))}
+            </ol>
+            <p className="muted small">
+              {ribbonLen.toFixed(1)} m of pieces on a route of about 151 m{ribbonLen < 150 ? '; the rest lies flat as path' : ribbonLen > 152 ? '; pieces past the end are cut off' : ''}.
+            </p>
+            <div className="actions">
+              <button onClick={() => setRibbon((r) => ({ ...r, pieces: [...r.pieces, { kind: 'bench', len: 4 }] }))}>Add a piece at the end</button>
+              <button onClick={resetRibbon}>Reset ribbon</button>
             </div>
           </section>
 
