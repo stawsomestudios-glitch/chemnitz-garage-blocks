@@ -474,8 +474,9 @@ export default function App() {
           <section>
             <h2><span className="dot" style={{ background: COBALT }} /> Ribbon</h2>
             <p className="muted">
-              One continuous cobalt band, about {Math.round(routeLen)} m. It starts in the green at Parkstraße / Haydnstraße, winds through four garage yards, turns at the corner of Richard-Wagner-Straße
-              and Stollberger Straße, and ends in the green under the school. On the way it folds into places to rest, meet, play and do sport. Click it in the model to change a piece.
+              One continuous cobalt band, about {Math.round(routeLen)} m. It starts in the green at Parkstraße / Haydnstraße, winds through the garage yards and twice right through three garages
+              (cleared inside), lifts into two repair ramps and two lookouts, turns at the corner of Richard-Wagner-Straße and Stollberger Straße, and ends in
+              the green under the school. On the way it folds into places to rest, meet, play and do sport. Click it in the model to change a piece.
             </p>
             <label className="check">
               <input type="checkbox" checked={ribbon.on} onChange={(e) => setRibbon((r) => ({ ...r, on: e.target.checked }))} /> Show the ribbon

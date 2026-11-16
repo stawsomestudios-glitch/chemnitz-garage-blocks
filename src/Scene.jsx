@@ -8,7 +8,7 @@ import { TITLE, EMPTY_COLOR } from './titles.js'
 import { CarGarage, ConnectDots, Elements, ViewApi } from './Elements.jsx'
 import { KINDS, dims } from './elements.js'
 import Ribbon from './Ribbon.jsx'
-import { COBALT, RIBBON_KINDS, buildRibbon } from './ribbon.js'
+import { COBALT, RIBBON_KINDS, buildRibbon, passages } from './ribbon.js'
 
 // Map metres (east, north) become three.js (x = east, y = up, z = south).
 const HOME = [-92, 80, -104]
@@ -129,7 +129,39 @@ function shapes(block) {
 }
 
 // Solid garages, their doors, and see-through garages (titles marked `clear`) are three separate sets.
-function Garages({ title, block, picked, onPick, connecting }) {
+// A garage the ribbon runs through: cleared inside, so only its roof and the outer walls the ribbon doesn't pass stay.
+const SHELL = '#ddd7cb'
+function Passages({ pass }) {
+  const parts = useMemo(() => {
+    const out = []
+    const t = 0.15
+    const H = MODULE.height
+    for (const id of pass.ids) {
+      const g = BY_ID[id]
+      const open = pass.open[id] ?? new Set()
+      const at = (a, b) => [g.x + g.u[0] * a + g.n[0] * b, g.y + g.u[1] * a + g.n[1] * b]
+      const add = (a, b, y, size) => out.push({ p: at(a, b), y, size, angle: g.angle })
+      out.push({ p: at(0, 0), y: H - 0.06, size: [MODULE.width, 0.12, MODULE.depth], angle: g.angle, roof: true }) // see-through roof, so the ribbon inside shows
+      const keep = (face, nb) => !open.has(face) && !(nb && pass.ids.has(nb))
+      if (keep('front')) add(0, 3 - t / 2, H / 2, [MODULE.width, H, t])
+      if (keep('back', g.back)) add(0, -3 + t / 2, H / 2, [MODULE.width, H, t])
+      if (keep('left', g.prev)) add(-1.5 + t / 2, 0, H / 2, [t, H, MODULE.depth])
+      if (keep('right', g.next)) add(1.5 - t / 2, 0, H / 2, [t, H, MODULE.depth])
+    }
+    return out
+  }, [pass])
+  return parts.map((q, i) => (
+    <mesh key={i} position={[q.p[0], q.y, -q.p[1]]} rotation={[0, q.angle, 0]} scale={q.size} geometry={box} castShadow={!q.roof} receiveShadow userData={{ stack: true }} renderOrder={q.roof ? 2 : 0}>
+      {q.roof ? (
+        <meshStandardMaterial color="#cfe0f0" transparent opacity={0.35} depthWrite={false} roughness={0.1} />
+      ) : (
+        <meshStandardMaterial color={SHELL} roughness={0.85} />
+      )}
+    </mesh>
+  ))
+}
+
+function Garages({ title, block, picked, onPick, connecting, pass }) {
   const body = useRef()
   const door = useRef()
   const glass = useRef()
@@ -139,11 +171,12 @@ function Garages({ title, block, picked, onPick, connecting }) {
     const clear = []
     const car = []
     GARAGES.forEach((g, i) => {
+      if (pass?.ids.has(g.id)) return // cleared for the ribbon, drawn as a shell instead
       const t = TITLE[title[g.id]]
       ;(t?.clear ? clear : t?.car ? car : solid).push(i)
     })
     return { solid, clear, car }
-  }, [title])
+  }, [title, pass])
   useLayoutEffect(() => {
     const put = (mesh, list, fn) => {
       list.forEach((i, k) => {
@@ -262,11 +295,12 @@ function Camera({ view, pieces }) {
 }
 
 // One title per locked block, or per single garage. Selected ones first, so they are never hidden.
-function useItems({ title, block, picked, labels, items, tags, chosen }) {
+function useItems({ title, block, picked, labels, items, tags, chosen, pass }) {
   return useMemo(() => {
     if (labels === 'off') return []
     const groups = new Map()
     for (const g of GARAGES) {
+      if (pass?.ids.has(g.id)) continue // the ribbon's own tag names these
       const k = block[g.id] ?? g.id
       if (!groups.has(k)) groups.set(k, [])
       groups.get(k).push(g)
@@ -307,12 +341,13 @@ function useItems({ title, block, picked, labels, items, tags, chosen }) {
       }
     const order = (x) => x.order ?? BY_ID[x.first].i
     return list.sort((a, b) => a.rank - b.rank || order(a) - order(b))
-  }, [title, block, picked, labels, items, tags, chosen])
+  }, [title, block, picked, labels, items, tags, chosen, pass])
 }
 
 export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget, ribbon, chosen, onPickPiece }) {
   const built = useMemo(() => (ribbon.on ? buildRibbon(ribbon) : null), [ribbon])
-  const tags = useItems({ title, block, picked, labels, items, tags: built?.tags ?? [], chosen })
+  const pass = ribbon.on ? passages() : null
+  const tags = useItems({ title, block, picked, labels, items, tags: built?.tags ?? [], chosen, pass })
   const refs = useRef([])
   const down = useRef([0, 0])
   return (
@@ -356,7 +391,8 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
           shadow-normalBias={0.05}
         />
         <Context site={site} />
-        <Garages title={title} block={block} picked={picked} onPick={onPick} connecting={!!connect} />
+        <Garages title={title} block={block} picked={picked} onPick={onPick} connecting={!!connect} pass={pass} />
+        {pass && <Passages pass={pass} />}
         {built && <Ribbon built={built} chosen={chosen} onPickPiece={onPickPiece} connecting={!!connect} />}
         <Elements items={items} picked={picked} onSelect={onSelectItem} onMove={onMoveItem} snap={snap} connecting={!!connect} />
         <ConnectDots connect={connect} items={items} onGrip={onGrip} onTarget={onTarget} />

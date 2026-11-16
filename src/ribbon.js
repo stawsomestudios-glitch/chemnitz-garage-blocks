@@ -1,15 +1,18 @@
 import * as THREE from 'three'
+import { GARAGES } from './garages.js'
 
 // The ribbon: one continuous cobalt band that winds through the garages and links three places:
 //   start: the green wedge at the Parkstraße / Haydnstraße junction,
 //   middle: the corner where Richard-Wagner-Straße ends at Stollberger Straße,
 //   end: the green above the Haydnstraße / Stollberger Straße junction, just under the school (Haydnstraße 21).
 // Along the way it folds up and down into places to rest, meet, play and do sport, but it never breaks.
+// Twice it dives through three garages (in at a door, through the back wall, sideways, out at a door);
+// those six garages are cleared inside. It lifts into two repair ramps and two lookouts.
 
 export const COBALT = '#0047ab'
 export const THICK = 0.1 // thickness of the band, metres
 export const DEFAULT_WIDTH = 2.4 // metres
-export const VERSION = 2 // plans saved with an older ribbon start again from the new one
+export const VERSION = 3 // plans saved with an older ribbon start again from the new one
 
 // The line it follows in plan, in local metres (east, north). It is drawn as a smooth curve through these points.
 // Checked against the map: at least 0.7 m between the ribbon's edge and every garage, and no building in the way.
@@ -23,14 +26,26 @@ export const ROUTE = [
   [44, -26],
   [40, -14],
   [33, -10.5], // into the yard between R5 and R6
-  [22, -12],
-  [14.5, -15],
-  [11.5, -19.2], // past the end of R7, along R11
-  [6, -19.7],
-  [-6, -20.6], // the south lane, along R13
+  [27, -9.6],
+  [25.3, -6], // in at the door of R5-4, through its back wall into R4-4,
+  [24.5, -1.5],
+  [23.7, 2.9],
+  [20.1, 5.3], // sideways into R4-3 and out of its door
+  [19.5, 8.6],
+  [15, 8.4], // the narrow yard between R3 and R4
+  [10.5, 8.4],
+  [6.5, 8.8], // in at the door of R7-9, through into R8-9,
+  [3.8, 8.4],
+  [-2.1, 7.4],
+  [-4.7, 4.0], // sideways into R8-8 and out of its door
+  [-7.6, 3.2],
+  [-10.2, 0], // down the yard between R8 and R9 (repair ramp)
+  [-9.6, -8],
+  [-8.6, -15],
+  [-11, -20.6], // the south lane (lookout)
   [-18, -21],
   [-26, -21.4],
-  [-30.3, -15], // up the yard between R10 and R12
+  [-30.3, -15], // up the yard between R10 and R12 (repair ramp)
   [-31.2, -6],
   [-33, -1],
   [-38, 1.5], // the corner where Richard-Wagner-Straße meets Stollberger Straße
@@ -43,7 +58,7 @@ export const ROUTE = [
   [-6, 31],
   [0, 31.5],
   [5, 29],
-  [12, 26.8], // the yard between R1 and R2
+  [12, 26.8], // the yard between R1 and R2 (lookout)
   [20, 28.6],
   [29, 31],
   [34, 40],
@@ -62,9 +77,9 @@ export const ROUTE = [
 
 // Where the ribbon lies over a street, in metres along it (measured against the street data).
 export const STREETS = [
-  ['Parkstraße', 30, 41],
-  ['Haydnstraße', 286, 296],
-  ['Stollberger Straße and the tram', 337, 364],
+  ['Parkstraße', 30, 40],
+  ['Haydnstraße', 321, 331],
+  ['Stollberger Straße and the tram', 372, 398],
 ]
 
 const B = THICK / 2 // centre of the band when it lies on the ground
@@ -109,7 +124,8 @@ const ease = (s0, s1, h0, h1, n = 10) =>
 
 // The groups the panel shows the kinds in.
 export const RIBBON_GROUPS = [
-  ['Move', ['path', 'crossing', 'stairs']],
+  ['Move', ['path', 'crossing', 'passage', 'stairs']],
+  ['Lifted', ['lookout', 'repair']],
   ['Rest', ['bench', 'chairs', 'daybed', 'shade']],
   ['Meet', ['table', 'picnic', 'stage', 'seats']],
   ['Sport and play', ['pingpong', 'workout', 'balance', 'skate', 'climb', 'wave']],
@@ -118,6 +134,34 @@ export const RIBBON_GROUPS = [
 export const RIBBON_KINDS = {
   path: { name: 'PATH', min: 1, shape: (L) => [[0, B], [L, B]] },
   crossing: { name: 'CROSSING', min: 1, shape: (L) => [[0, B], [L, B]], note: 'Lies flat on the street.' },
+  passage: {
+    name: 'GARAGE PASSAGE',
+    min: 1,
+    wide: 0.75,
+    note: 'A 1.8 m walkway. Where the ribbon runs through garages, they are cleared of their inside walls and only the outer shell and roof stay.',
+    shape: (L) => [[0, B], [L, B]],
+  },
+  repair: {
+    name: 'REPAIR RAMP',
+    min: 16.5,
+    wide: 1.1,
+    note: 'Drive up a 15% ramp onto a deck 1.6 m high. The ribbon splits into two wheel tracks with a 1 m slot between them, so you can work on the car from underneath. A wheel stop at the end; reverse back down.',
+    // ramp up, deck, a wheel stop, then the ribbon drops to the ground and goes on
+    shape: (L) => [[0, B], [0.2, B], [10.9, top(1.6)], [L - 0.45, top(1.6)], [L - 0.4, top(1.85)], [L - 0.25, top(1.85)], [L - 0.25, B], [L, B]],
+    // the slot between the wheel tracks: opens up the ramp, full on the deck, closed at the wheel stop
+    slot: (s, L) => (s < 0.2 ? 0 : s < 10.9 ? (s - 0.2) / 10.7 : s <= L - 0.45 ? 1 : 0),
+  },
+  lookout: {
+    name: 'LOOKOUT',
+    min: 15.5,
+    wide: 1.7,
+    note: 'Stairs up to a wide platform 4.2 m high, above the garage roofs, to see the whole complex come together. Stairs down the other side.',
+    shape: (L) => {
+      const upS = steps(24, 0.175, 0.28, 0.2, B, 1)
+      const down = steps(24, 0.175, 0.28, L - 0.2 - 24 * 0.28, upS.at(-1)[1], -1)
+      return [[0, B], [0.2, B], ...upS, ...down, [L, B]]
+    },
+  },
   bench: { name: 'BENCH', min: 1.6, shape: (L) => up(L, 0.3, 0.45), note: 'Seat 45 cm.' },
   chairs: {
     name: 'CHAIRS',
@@ -272,33 +316,35 @@ export const RIBBON_KINDS = {
 }
 export const RIBBON_KIND_IDS = Object.keys(RIBBON_KINDS)
 
-// The ribbon as it starts, about 440 m. The three CROSSING pieces lie over the streets.
+// The ribbon as it starts, about 474 m. The three CROSSING pieces lie over the streets.
 const P = (kind, len) => ({ kind, len })
 export const DEFAULT_PIECES = [
   // the green wedge at Parkstraße / Haydnstraße: a place to rest
-  P('path', 2), P('daybed', 3), P('bench', 4), P('path', 3), P('shade', 8), P('chairs', 4.8), P('path', 4.7),
-  P('crossing', 11.2), // Parkstraße
+  P('path', 2), P('daybed', 3), P('bench', 4), P('path', 3), P('shade', 8), P('chairs', 4.8), P('path', 5.2),
+  P('crossing', 10.4), // Parkstraße
   // along Haydnstraße: sport
-  P('path', 3), P('balance', 8), P('path', 2.3), P('workout', 7.2), P('path', 2), P('climb', 6), P('path', 2), P('bench', 4), P('path', 7.8),
-  // the yard between R5 and R6: shade, a long table, ping pong
-  P('shade', 7), P('picnic', 5), P('path', 2), P('pingpong', 4), P('path', 2), P('pingpong', 4), P('bench', 4),
-  // past R7 and along the south lane: skate and play
-  P('path', 22), P('skate', 10), P('path', 2), P('wave', 6), P('path', 7),
-  // the yard between R10 and R12: a stage with seat steps facing it
-  P('stage', 6), P('seats', 6), P('path', 6),
+  P('path', 3), P('balance', 8), P('path', 2.3), P('workout', 7.2), P('path', 2), P('climb', 6), P('path', 2), P('bench', 4), P('path', 8.1),
+  // the yard between R5 and R6
+  P('pingpong', 4), P('path', 1.5), P('picnic', 5), P('path', 2), P('bench', 4),
+  // through R5-4, R4-4, R4-3, the narrow yard, and R7-9, R8-9, R8-8
+  P('passage', 19.5), P('passage', 11), P('passage', 19.5),
+  // lifted: a repair ramp, a lookout over the middle of the complex, another repair ramp
+  P('repair', 17), P('path', 5.5), P('lookout', 16), P('path', 2), P('repair', 17), P('path', 4),
   // the corner at Richard-Wagner-Straße: a meeting spot
-  P('shade', 7), P('picnic', 5), P('bench', 4), P('path', 6),
+  P('shade', 7), P('picnic', 5), P('bench', 4),
   // along Stollberger Straße: sit and watch the street
-  P('chairs', 7.2), P('path', 2), P('daybed', 3), P('path', 2), P('chairs', 4.8), P('path', 6),
-  // round R8 and through the yard between R1 and R2
-  P('stairs', 6), P('path', 4), P('bench', 4), P('path', 12), P('picnic', 5), P('shade', 8), P('wave', 6), P('path', 6), P('bench', 4), P('path', 8),
-  P('crossing', 10.5), // Haydnstraße
+  P('path', 2), P('chairs', 7.2), P('path', 2), P('daybed', 3), P('path', 2), P('chairs', 4.8), P('path', 3),
+  // round R8
+  P('stairs', 6), P('path', 4), P('bench', 4), P('path', 3), P('picnic', 5), P('path', 10),
+  // the yard between R1 and R2: a lookout
+  P('lookout', 16), P('path', 2), P('wave', 6), P('path', 2), P('bench', 4), P('path', 7.8),
+  P('crossing', 10), // Haydnstraße
   // the green strips
-  P('path', 3), P('daybed', 3), P('path', 3), P('bench', 4), P('path', 5), P('chairs', 4.8), P('path', 2.7), P('balance', 6), P('path', 9),
-  P('crossing', 27.2), // Stollberger Straße and the tram
-  // the green under the school: play, an outdoor classroom, shade, rest
-  P('path', 4), P('wave', 6), P('path', 2), P('climb', 6), P('path', 3), P('skate', 9), P('path', 3), P('seats', 6), P('path', 2),
-  P('shade', 9), P('picnic', 5), P('path', 3), P('daybed', 3), P('bench', 4), P('path', 10.5),
+  P('path', 3), P('daybed', 3), P('path', 3), P('bench', 4), P('path', 5), P('chairs', 4.8), P('path', 2.7), P('balance', 6), P('path', 9.3),
+  P('crossing', 26.8), // Stollberger Straße and the tram
+  // the green under the school: play, a stage with seat steps, shade, rest
+  P('path', 4), P('wave', 6), P('path', 2), P('climb', 6), P('path', 3), P('skate', 9), P('path', 3), P('stage', 6), P('seats', 6), P('path', 2),
+  P('shade', 9), P('picnic', 5), P('path', 3), P('daybed', 3), P('bench', 4), P('path', 4.7),
 ]
 export const DEFAULT_RIBBON = { v: VERSION, on: true, width: DEFAULT_WIDTH, pieces: DEFAULT_PIECES }
 
@@ -374,9 +420,9 @@ export function buildRibbon(ribbon, route = ROUTE) {
       const s = p.s0 + Math.min(L, Math.max(0, pts[j][0]))
       // the long flat parts get extra points, so the band follows the curve smoothly
       const prev = prof.at(-1)
-      if (prev && s - prev[0] > 0.5 && Math.abs(pts[j][1] - prev[1]) < 1e-6) {
+      if (prev && s - prev[0] > 0.5) {
         const n = Math.ceil((s - prev[0]) / 0.5)
-        for (let q = 1; q < n; q++) prof.push([prev[0] + ((s - prev[0]) * q) / n, prev[1], k])
+        for (let q = 1; q < n; q++) prof.push([prev[0] + ((s - prev[0]) * q) / n, prev[1] + ((pts[j][1] - prev[1]) * q) / n, k])
       }
       if (prev && Math.abs(prev[0] - s) < 1e-6 && Math.abs(prev[1] - pts[j][1]) < 1e-6) continue
       prof.push([s, pts[j][1], k])
@@ -412,7 +458,10 @@ export function buildRibbon(ribbon, route = ROUTE) {
     const T = curve.getTangentAt(u)
     const side = new THREE.Vector3(-T.z, 0, T.x).normalize()
     const nrm = new THREE.Vector3(T.x * -dh, ds, T.z * -dh) // the band's own "up", tipped with the fold
-    return { P: P.setY(h), side, nrm, w: widthAt(s, k), k }
+    const w = widthAt(s, k)
+    const kind = RIBBON_KINDS[parts[k].kind]
+    const g = kind.slot ? Math.min(w - 0.3, Math.max(0, kind.slot(s - parts[k].s0, parts[k].s1 - parts[k].s0))) : 0
+    return { P: P.setY(h), side, nrm, w, g, k }
   })
 
   const pos = []
@@ -433,21 +482,28 @@ export function buildRibbon(ribbon, route = ROUTE) {
       else idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
     }
   }
-  const corner = (sx, sy) => (q) => q.P.clone().addScaledVector(q.side, (sx * q.w) / 2).addScaledVector(q.nrm, (sy * THICK) / 2)
-  strip(corner(1, 1), corner(-1, 1), false) // top face
-  strip(corner(1, -1), corner(-1, -1), true) // underside
-  strip(corner(1, -1), corner(1, 1), false) // one edge
-  strip(corner(-1, -1), corner(-1, 1), true) // other edge
-  // close the two ends
-  for (const [q, flip] of [[sec[0], true], [sec.at(-1), false]]) {
-    const base = pos.length / 3
-    for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
-      const v = corner(sx, sy)(q)
-      pos.push(v.x, v.y, v.z)
-      piece.push(parts[q.k].i)
+  // the band is drawn as two halves side by side, so it can open a slot down the middle (repair ramps)
+  const at = (lat, sy) => (q) => q.P.clone().addScaledVector(q.side, lat(q)).addScaledVector(q.nrm, (sy * THICK) / 2)
+  const halves = [
+    [(q) => q.w / 2, (q) => q.g / 2],
+    [(q) => -q.g / 2, (q) => -q.w / 2],
+  ]
+  for (const [hi, lo] of halves) {
+    strip(at(hi, 1), at(lo, 1), false) // top face
+    strip(at(hi, -1), at(lo, -1), true) // underside
+    strip(at(hi, -1), at(hi, 1), false) // one edge
+    strip(at(lo, -1), at(lo, 1), true) // other edge
+    // close the two ends
+    for (const [q, flip] of [[sec[0], true], [sec.at(-1), false]]) {
+      const base = pos.length / 3
+      for (const [lat, sy] of [[hi, 1], [lo, 1], [hi, -1], [lo, -1]]) {
+        const v = at(lat, sy)(q)
+        pos.push(v.x, v.y, v.z)
+        piece.push(parts[q.k].i)
+      }
+      if (flip) idx.push(base, base + 2, base + 1, base + 1, base + 2, base + 3)
+      else idx.push(base, base + 1, base + 2, base + 1, base + 3, base + 2)
     }
-    if (flip) idx.push(base, base + 2, base + 1, base + 1, base + 2, base + 3)
-    else idx.push(base, base + 1, base + 2, base + 1, base + 3, base + 2)
   }
 
   const geo = new THREE.BufferGeometry()
@@ -466,10 +522,45 @@ export function buildRibbon(ribbon, route = ROUTE) {
       return { i: p.i, kind: p.kind, p: [P.x, hi + 1.2, P.z] }
     })
 
-  return { geo, piece: new Int16Array(piece), total, parts, tags }
+  return { geo, piece: new Int32Array(piece), total, parts, tags }
 }
 
 function norm2(a, b) {
   const l = Math.hypot(a, b)
   return l < 1e-9 ? null : [a / l, b / l]
+}
+
+// The garages the ribbon runs through, and which of their faces it opens.
+// A face is 'front' (the door), 'back', 'left' (towards the garage numbered one lower) or 'right'.
+let cachedPassages = null
+export function passages() {
+  if (cachedPassages) return cachedPassages
+  const curve = routeCurve()
+  const total = curve.getLength()
+  const local = (g, p) => {
+    const dx = p[0] - g.x
+    const dy = p[1] - g.y
+    return [dx * g.u[0] + dy * g.u[1], dx * g.n[0] + dy * g.n[1]]
+  }
+  const inside = ([a, b]) => Math.abs(a) < 1.5 && Math.abs(b) < 3
+  const pts = []
+  for (let s = 0; s <= total; s += 0.2) {
+    const P = curve.getPointAt(Math.min(1, s / total))
+    pts.push([P.x, -P.z])
+  }
+  const ids = new Set()
+  const open = {}
+  for (const g of GARAGES) {
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const la = local(g, pts[i])
+      const lb = local(g, pts[i + 1])
+      if (inside(la)) ids.add(g.id)
+      if (inside(la) === inside(lb)) continue
+      const [a, b] = inside(la) ? lb : la // the point outside tells which face was crossed
+      const face = Math.abs(b) >= 3 ? (b > 0 ? 'front' : 'back') : a > 0 ? 'right' : 'left'
+      ;(open[g.id] ??= new Set()).add(face)
+    }
+  }
+  cachedPassages = { ids, open }
+  return cachedPassages
 }
