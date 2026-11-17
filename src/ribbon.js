@@ -122,13 +122,33 @@ const ease = (s0, s1, h0, h1, n = 10) =>
     return [s0 + (s1 - s0) * f, h0 + (h1 - h0) * (0.5 - 0.5 * Math.cos(f * Math.PI))]
   })
 
+// Monkey bars: where the rungs are, as [centre, half-width] along the piece, in metres.
+// A ladder up (a rung every 10 cm along the ground, so about every 27 cm up), bars at 2.2 m about every 40 cm, a ladder down.
+function monkeyRungs(L) {
+  const out = []
+  for (let r = 0.25; r < 0.99; r += 0.1) out.push([r, 0.012])
+  const n = Math.max(2, Math.round((L - 2) / 0.4))
+  for (let i = 0; i <= n; i++) out.push([1 + (i * (L - 2)) / n, 0.03])
+  for (let r = L - 0.25; r > L - 0.99; r -= 0.1) out.push([r, 0.012])
+  return out.sort((a, b) => a[0] - b[0])
+}
+const monkeyHeight = (s, L) => {
+  const t = top(2.2)
+  if (s <= 0.2 || s >= L - 0.2) return B
+  if (s < 1) return B + ((t - B) * (s - 0.2)) / 0.8
+  if (s > L - 1) return B + ((t - B) * (L - 0.2 - s)) / 0.8
+  return t
+}
+// Seesaw: a plank from a 35 cm seat up to 1 m, with a handle near each end and a pivot under the middle.
+const seesawHeight = (s, L) => top(0.35 + (0.65 * (s - 0.3)) / (L - 0.6))
+
 // The groups the panel shows the kinds in.
 export const RIBBON_GROUPS = [
   ['Move', ['path', 'crossing', 'passage', 'stairs', 'gap']],
   ['Lifted', ['lookout', 'repair']],
   ['Rest', ['bench', 'chairs', 'daybed', 'shade']],
   ['Meet', ['table', 'picnic', 'stage', 'seats']],
-  ['Sport and play', ['pingpong', 'workout', 'balance', 'skate', 'climb', 'wave']],
+  ['Sport and play', ['pingpong', 'workout', 'balance', 'monkeybars', 'seesaw', 'skate', 'climb', 'wave']],
 ]
 
 export const RIBBON_KINDS = {
@@ -275,6 +295,44 @@ export const RIBBON_KINDS = {
       }
       out.push([L - 0.3, top(0.3)], [L - 0.3, B], [L, B])
       return out
+    },
+  },
+  monkeybars: {
+    name: 'MONKEY BARS',
+    min: 4,
+    wide: 0.5,
+    note: 'Climb a ladder, swing along bars 2.2 m up, climb down the other side. The ribbon opens into two side rails with rungs between them.',
+    shape: (L) => {
+      const pts = [[0, B], [0.2, B], [1, top(2.2)], [L - 1, top(2.2)], [L - 0.2, B], [L, B]]
+      for (const [c, hw] of monkeyRungs(L)) for (const d of [-1.5, -1, 1, 1.5]) pts.push([c + d * hw, null])
+      return pts
+        .sort((a, b) => a[0] - b[0])
+        .filter((p, i, all) => i === 0 || p[0] - all[i - 1][0] > 1e-4)
+        .map(([a, h]) => [a, h ?? monkeyHeight(a, L)])
+    },
+    // open between the rails, closed at each rung and at both ends
+    slot: (s, L) => {
+      if (s <= 0.21 || s >= L - 0.21) return 0
+      for (const [c, hw] of monkeyRungs(L)) if (Math.abs(s - c) <= hw + 1e-4) return 0
+      return 2
+    },
+  },
+  seesaw: {
+    name: 'SEESAW',
+    min: 3.6,
+    wide: 0.25,
+    note: 'A plank for two, from a 35 cm seat up to 1 m, with a handle near each end. The ribbon folds down into a pivot under the middle; drawn tipped to one side.',
+    shape: (L) => {
+      const m = L / 2
+      const h = (a) => seesawHeight(a, L)
+      const handle = (a) => [[a - 0.03, h(a - 0.03)], [a - 0.03, h(a - 0.03) + 0.25], [a + 0.03, h(a + 0.03) + 0.25], [a + 0.03, h(a + 0.03)]]
+      return [
+        [0, B], [0.3, B], [0.3, h(0.3)],
+        ...handle(0.75),
+        [m - 0.1, h(m - 0.1)], [m - 0.1, B], [m + 0.1, B], [m + 0.1, h(m + 0.1)],
+        ...handle(L - 0.75),
+        [L - 0.3, h(L - 0.3)], [L - 0.3, B], [L, B],
+      ]
     },
   },
   skate: {
