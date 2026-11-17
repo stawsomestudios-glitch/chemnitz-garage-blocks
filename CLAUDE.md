@@ -19,3 +19,5 @@ The cobalt ribbon (route, piece kinds, starting layout, street positions) is in 
 Garages the ribbon passes through are found automatically from `ROUTE` (`passages()` in `src/ribbon.js`) and drawn as cleared shells (roof see-through, inside walls removed) in `src/Scene.jsx`.
 
 Download Rhino 8 model (Save section): `src/export3dm.js` turns the three.js scene into a .3dm with rhino3dm (loaded only on click). Meshes go on layers named by `userData.layer`; `userData.noExport` leaves helpers out.
+
+Undo / redo: every plan change goes through `setPlan` in `src/App.jsx` (`useHistory`, 100 steps); a drag counts as one step. Detach turns a ribbon piece into a single blue module (an element of kind `rmod`, with `rk`, `len`, `flip`, `bw`) and leaves a `gap` piece; the ribbon is not drawn over gaps. Reattach puts a module into the nearest gap, or carves it into the nearest path. Single modules are added from the Ribbon section and drawn by `Module` in `src/Elements.jsx`.

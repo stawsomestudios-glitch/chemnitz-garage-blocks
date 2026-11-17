@@ -124,7 +124,7 @@ const ease = (s0, s1, h0, h1, n = 10) =>
 
 // The groups the panel shows the kinds in.
 export const RIBBON_GROUPS = [
-  ['Move', ['path', 'crossing', 'passage', 'stairs']],
+  ['Move', ['path', 'crossing', 'passage', 'stairs', 'gap']],
   ['Lifted', ['lookout', 'repair']],
   ['Rest', ['bench', 'chairs', 'daybed', 'shade']],
   ['Meet', ['table', 'picnic', 'stage', 'seats']],
@@ -133,6 +133,13 @@ export const RIBBON_GROUPS = [
 
 export const RIBBON_KINDS = {
   path: { name: 'PATH', min: 1, shape: (L) => [[0, B], [L, B]] },
+  gap: {
+    name: 'GAP',
+    min: 0.5,
+    gap: true,
+    note: 'No ribbon here: the band is cut and its two ends stop. A piece you detach leaves a gap; reattach a module to fill it.',
+    shape: (L) => [[0, B], [L, B]],
+  },
   crossing: { name: 'CROSSING', min: 1, shape: (L) => [[0, B], [L, B]], note: 'Lies flat on the street.' },
   passage: {
     name: 'GARAGE PASSAGE',
@@ -316,6 +323,21 @@ export const RIBBON_KINDS = {
 }
 export const RIBBON_KIND_IDS = Object.keys(RIBBON_KINDS)
 
+// A single blue module: one piece of ribbon on its own, straight. Its usual length, and its highest point.
+export function moduleLen(kind) {
+  const p = DEFAULT_PIECES.find((q) => q.kind === kind)
+  return Math.max(RIBBON_KINDS[kind].min, p ? Math.min(p.len, 17) : 4)
+}
+export function pieceTop(kind, len, flip) {
+  let top = 0
+  for (const [, h] of RIBBON_KINDS[kind].shape(len)) top = Math.max(top, h + B)
+  return Math.round(top * 100) / 100
+}
+// the straight module as a mesh, running along its own length (front at +z)
+export function buildModule({ rk, len, flip, bw }) {
+  return buildRibbon({ width: bw, pieces: [{ kind: rk, len, flip }] }, [[0, -len / 2], [0, len / 2]]).geo
+}
+
 // The ribbon as it starts, about 474 m. The three CROSSING pieces lie over the streets.
 const P = (kind, len) => ({ kind, len })
 export const DEFAULT_PIECES = [
@@ -471,6 +493,8 @@ export function buildRibbon(ribbon, route = ROUTE) {
   const pos = []
   const piece = []
   const idx = []
+  // a stretch from section i to i + 1 is left out when it lies in a GAP
+  const draw = (i) => !RIBBON_KINDS[parts[sec[i + 1].k].kind].gap
   const strip = (fa, fb, flip) => {
     const base = pos.length / 3
     for (const q of sec) {
@@ -481,6 +505,7 @@ export function buildRibbon(ribbon, route = ROUTE) {
       }
     }
     for (let i = 0; i + 1 < sec.length; i++) {
+      if (!draw(i)) continue
       const a = base + i * 2
       if (flip) idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
       else idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2)
@@ -497,8 +522,15 @@ export function buildRibbon(ribbon, route = ROUTE) {
     strip(at(hi, -1), at(lo, -1), true) // underside
     strip(at(hi, -1), at(hi, 1), false) // one edge
     strip(at(lo, -1), at(lo, 1), true) // other edge
-    // close the two ends
-    for (const [q, flip] of [[sec[0], true], [sec.at(-1), false]]) {
+    // close the ends of every stretch: the two ends of the ribbon, and both sides of each gap
+    const caps = []
+    for (let i = 0; i < sec.length; i++) {
+      const before = i > 0 && draw(i - 1)
+      const after = i < sec.length - 1 && draw(i)
+      if (after && !before) caps.push([sec[i], true])
+      if (before && !after) caps.push([sec[i], false])
+    }
+    for (const [q, flip] of caps) {
       const base = pos.length / 3
       for (const [lat, sy] of [[hi, 1], [lo, 1], [hi, -1], [lo, -1]]) {
         const v = at(lat, sy)(q)

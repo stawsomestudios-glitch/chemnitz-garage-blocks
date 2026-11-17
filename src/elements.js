@@ -1,4 +1,5 @@
 import { GARAGES } from './garages.js'
+import { COBALT, DEFAULT_WIDTH, RIBBON_KINDS, pieceTop } from './ribbon.js'
 
 // The elements you can drag into the model. All sizes in metres.
 // Each element is built from simple parts: box, cyl (cylinder), ball or cone.
@@ -96,6 +97,8 @@ export const KINDS = {
       box([0.97, 3.92, 0], [0.07, 0.05, 9], '#4a4d52'),
     ],
   },
+  // a single blue module: one ribbon piece on its own (rk = its kind, len, flip, bw = band width). Added from the Ribbon section.
+  rmod: { name: 'Blue module', size: 'one ribbon piece', w: DEFAULT_WIDTH, d: 4, colour: COBALT, hidden: true, parts: () => [] },
   ramp: {
     name: 'Ramp to roof', size: '1.5 × 9, 3 up', w: 1.5, d: 9, colour: '#b9b2a6',
     parts: (c) => [box([0, 1.4, 0], [1.5, 0.2, Math.hypot(9, 2.8)], c, { r: [Math.atan2(2.8, 9), 0, 0] }), box([0, 2.9, -4.5 + 0.3], [1.5, 0.2, 0.6], c)],
@@ -104,10 +107,11 @@ export const KINDS = {
 // Height of each element in metres, used for sizes, stacking and connect points.
 const HEIGHTS = { module: 3, half: 3, deck: 0.3, stairs: 3, shade: 3.4, pergola: 3.08, parasol: 2.75, tree: 6.1, planter: 0.76, bench: 0.95, table: 0.78, wall: 2.4, lamp: 4.05, person: 1.71, car: 1.4, bridge: 1.15, bridgelegs: 3.95, ramp: 3 }
 for (const k in KINDS) KINDS[k].h = HEIGHTS[k]
-export const KIND_IDS = Object.keys(KINDS)
+export const KIND_IDS = Object.keys(KINDS).filter((k) => !KINDS[k].hidden)
 
 // The real size of an element: what you typed in, or its normal size.
 export function dims(it) {
+  if (it.kind === 'rmod') return { w: it.bw * (RIBBON_KINDS[it.rk].wide ?? 1), d: it.len, h: pieceTop(it.rk, it.len) }
   const k = KINDS[it.kind]
   return { w: it.sw ?? k.w, d: it.sd ?? k.d, h: it.sh ?? k.h }
 }

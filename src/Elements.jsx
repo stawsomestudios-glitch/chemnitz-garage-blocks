@@ -1,8 +1,20 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { GARAGE_POINTS, KINDS, carColour, carParts, dims, localAnchors, magnet, snapPoint, toWorld } from './elements.js'
 import { TITLE } from './titles.js'
+import { COBALT, RIBBON_KINDS, buildModule } from './ribbon.js'
+
+// A single blue module: one straight piece of the ribbon.
+function Module({ it, picked }) {
+  const geo = useMemo(() => buildModule(it), [it.rk, it.len, it.flip, it.bw])
+  useEffect(() => () => geo.dispose(), [geo])
+  return (
+    <mesh geometry={geo} castShadow receiveShadow userData={{ stack: true, item: it.id, name: `${RIBBON_KINDS[it.rk].name} module${it.flip ? ' (flipped)' : ''}` }}>
+      <meshStandardMaterial color={picked ? '#5b9bff' : COBALT} roughness={0.75} side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
 
 const PI = Math.PI
 const GEO = {
@@ -99,7 +111,7 @@ export function Elements({ items, picked, onSelect, onMove, snap, connecting }) 
     return (
       <group
         key={it.id}
-        userData={{ layer: `Elements - ${KINDS[it.kind].name}` }}
+        userData={{ layer: it.kind === 'rmod' ? 'Ribbon - single modules' : `Elements - ${KINDS[it.kind].name}` }}
         position={[it.x, it.z, -it.y]}
         rotation={[0, (it.rot * PI) / 180, 0]}
         onClick={(e) => !connecting && e.stopPropagation()}
@@ -138,10 +150,14 @@ export function Elements({ items, picked, onSelect, onMove, snap, connecting }) 
         onPointerOver={() => (document.body.style.cursor = connecting ? '' : 'grab')}
         onPointerOut={() => (document.body.style.cursor = '')}
       >
-        {/* stretched to the size you set */}
-        <group scale={[size.w / k.w, size.h / k.h, size.d / k.d]}>
-          <Parts parts={partsOf(it)} item={it.id} />
-        </group>
+        {it.kind === 'rmod' ? (
+          <Module it={it} picked={picked.has(it.id)} />
+        ) : (
+          /* stretched to the size you set */
+          <group scale={[size.w / k.w, size.h / k.h, size.d / k.d]}>
+            <Parts parts={partsOf(it)} item={it.id} />
+          </group>
+        )}
         {picked.has(it.id) && (
           <mesh position={[0, 0.04, 0]} rotation={[-PI / 2, 0, 0]} renderOrder={3} userData={{ noExport: true }}>
             <planeGeometry args={[size.w + 0.6, size.d + 0.6]} />

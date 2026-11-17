@@ -338,7 +338,7 @@ function useItems({ title, block, picked, labels, items, tags, chosen, pass }) {
     if (labels === 'titles')
       for (const t of tags) {
         const sel = t.i === chosen
-        if (t.kind === 'path' && !sel) continue
+        if ((t.kind === 'path' || t.kind === 'gap') && !sel) continue
         list.push({ key: `rb${t.i}|${t.kind}`, piece: t.i, p: t.p, text: RIBBON_KINDS[t.kind].name, color: COBALT, ribbon: true, sel, rank: sel ? 0 : 2, order: 2000 + t.i })
       }
     const order = (x) => x.order ?? BY_ID[x.first].i
@@ -361,7 +361,7 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
       }}
       onDrop={(e) => {
         const kind = e.dataTransfer.getData('text/kind')
-        if (!KINDS[kind]) return
+        if (!KINDS[kind.split(':')[0]]) return
         e.preventDefault()
         const p = api.current?.landAt(e.clientX, e.clientY)
         if (p) onDropKind(kind, p)
