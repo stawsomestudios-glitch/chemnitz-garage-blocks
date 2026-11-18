@@ -3,7 +3,7 @@ import Scene from './Scene.jsx'
 import { GARAGES, BY_ID, ROW_IDS, connected, label } from './garages.js'
 import { TITLES, TITLE } from './titles.js'
 import { KINDS, KIND_IDS, alignRot, dims, placeByGrip, snapPoint } from './elements.js'
-import { COBALT, DEFAULT_RIBBON, RIBBON_GROUPS, RIBBON_KINDS, STREETS, cleanRibbon, moduleLen, routeCurve } from './ribbon.js'
+import { COBALT, DEFAULT_RIBBON, RIBBON_GROUPS, RIBBON_KINDS, STREETS, cleanRibbon, cleanSize, hasHeight, moduleLen, pieceTop, pieceWidth, routeCurve } from './ribbon.js'
 
 const BASE = import.meta.env.BASE_URL
 const KEY = 'chemnitz-garage-blocks-v1'
@@ -39,6 +39,7 @@ function clean(s) {
         out.len = Math.max(RIBBON_KINDS[rk].min, Math.round(num(it.len) * 10) / 10 || moduleLen(rk))
         out.bw = +it.bw >= 0.6 && +it.bw <= 8 ? +it.bw : 2.4
         if (it.flip) out.flip = true
+        Object.assign(out, cleanSize({ kind: rk, w: it.w, h: it.h }))
       }
       return out
     })
@@ -78,6 +79,38 @@ function download(name, text, type) {
   URL.revokeObjectURL(a.href)
 }
 
+// Width, length and height boxes for ribbon pieces and modules. An empty box ("mixed") means the picked pieces differ.
+function SizeBoxes({ id, vals, min, heightOk, custom, onSet, onReset }) {
+  const box = (key, label, step, lo, off, tip) => (
+    <label title={tip}>
+      <span>{label}</span>
+      <input
+        key={`${id}-${key}-${vals[key]}`}
+        type="number" min={lo} step={step} disabled={off}
+        defaultValue={vals[key] ?? ''}
+        placeholder={vals[key] == null ? 'mixed' : ''}
+        onBlur={(e) => e.target.value !== '' && e.target.value !== e.target.defaultValue && onSet(key, e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+      />
+      <small>m</small>
+    </label>
+  )
+  return (
+    <>
+      <div className="sizes">
+        {box('w', 'Width', 0.1, 0.3, false, 'Across the ribbon')}
+        {box('len', 'Length', 0.5, min, false, 'Along the ribbon')}
+        {box('h', 'Height', 0.05, 0.25, !heightOk, heightOk ? 'Height of the highest point' : 'A flat piece has no height to change')}
+      </div>
+      {custom && (
+        <div className="scale-btns">
+          <button onClick={onReset} title="Back to the usual width and height for this kind">Normal width and height</button>
+        </div>
+      )}
+    </>
+  )
+}
+
 export default function App() {
   const [site, setSite] = useState(null)
   const [error, setError] = useState(null)
@@ -89,7 +122,10 @@ export default function App() {
   const [note, setNote] = useState(null)
   const [snap, setSnap] = useState('grid')
   const [connect, setConnect] = useState(null) // null, or { stage: 'grip' | 'target', id, grip }
-  const [chosen, setChosen] = useState(null) // the ribbon piece you clicked, by its number
+  // the ribbon pieces you picked, by their numbers; `chosen` is the one piece when only one is picked
+  const [chosenList, setChosenList] = useState([])
+  const chosen = chosenList.length === 1 ? chosenList[0] : null
+  const setChosen = (i) => setChosenList(i == null ? [] : [i])
   const file = useRef()
   const api = useRef(null)
   const { title, block, items, ribbon } = plan
@@ -219,13 +255,22 @@ export default function App() {
 
   // ----- the ribbon -----
   const setRibbon = (fn) => setPlan((p) => ({ ...p, ribbon: fn(p.ribbon) }))
-  const pickPiece = (i) => {
+  // Shift-click (or the "Add to selection" box) adds a piece to the ones picked, or takes it out again.
+  const pickPiece = (i, add) => {
     if (i == null || i < 0) return
-    setChosen(i)
+    setChosenList((old) => (add || multi ? (old.includes(i) ? old.filter((k) => k !== i) : [...old, i]) : [i]))
     setPicked(new Set())
   }
-  const editPiece = (i, change) =>
-    setRibbon((r) => ({ ...r, pieces: r.pieces.map((p, k) => (k === i ? { ...p, ...change, len: Math.max(RIBBON_KINDS[change.kind ?? p.kind].min, change.len ?? p.len) } : p)) }))
+  // A change to one piece or several. A new kind drops a height you set (a bench height makes no sense for a lookout).
+  const sized = (p, change) => {
+    const kind = change.rk ?? change.kind ?? (p.kind === 'rmod' ? p.rk : p.kind)
+    const next = { ...p, ...change, len: Math.max(RIBBON_KINDS[kind].min, change.len ?? p.len) }
+    if ((change.kind && change.kind !== p.kind) || (change.rk && change.rk !== p.rk) || !hasHeight(kind)) delete next.h
+    for (const k of ['w', 'h']) if (next[k] == null) delete next[k]
+    return next
+  }
+  const editPieces = (list, change) => setRibbon((r) => ({ ...r, pieces: r.pieces.map((p, k) => (list.includes(k) ? sized(p, change) : p)) }))
+  const editPiece = (i, change) => editPieces([i], change)
   const splitPiece = (i) =>
     setRibbon((r) => {
       const p = r.pieces[i]
@@ -253,25 +298,40 @@ export default function App() {
   }
   const startOf = (i) => ribbon.pieces.slice(0, i).reduce((a, p) => a + p.len, 0)
 
-  // Detach: the piece leaves the ribbon as a single straight module, in the same place; a gap stays behind.
-  const detachPiece = (i) => {
-    const p = ribbon.pieces[i]
-    if (!p || RIBBON_KINDS[p.kind].gap) return
-    const at = along(startOf(i) + p.len / 2)
-    const it = { id: newId(), kind: 'rmod', rk: p.kind, len: p.len, bw: ribbon.width, x: at.x, y: at.y, z: 0, rot: at.rot, ...(p.flip ? { flip: true } : {}) }
+  // Detach: each piece leaves the ribbon as a single straight module, in the same place; a gap stays behind.
+  const detachPieces = (list) => {
+    const out = list.filter((i) => ribbon.pieces[i] && !RIBBON_KINDS[ribbon.pieces[i].kind].gap)
+    if (!out.length) return
+    const mods = out.map((i) => {
+      const p = ribbon.pieces[i]
+      const at = along(startOf(i) + p.len / 2)
+      return { id: newId() + i, kind: 'rmod', rk: p.kind, len: p.len, bw: ribbon.width, x: at.x, y: at.y, z: 0, rot: at.rot, ...(p.flip ? { flip: true } : {}), ...cleanSize(p) }
+    })
     setPlan((pl) => ({
       ...pl,
-      items: [...pl.items, it],
-      ribbon: { ...pl.ribbon, pieces: pl.ribbon.pieces.map((q, k) => (k === i ? { kind: 'gap', len: q.len } : q)) },
+      items: [...pl.items, ...mods],
+      ribbon: { ...pl.ribbon, pieces: pl.ribbon.pieces.map((q, k) => (out.includes(k) ? { kind: 'gap', len: q.len } : q)) },
     }))
     setChosen(null)
-    setPicked(new Set([it.id]))
-    setNote(`${RIBBON_KINDS[p.kind].name} detached. Drag it anywhere; Reattach puts it back into the nearest gap.`)
+    setPicked(new Set(mods.map((m) => m.id)))
+    setNote(
+      mods.length === 1
+        ? `${RIBBON_KINDS[mods[0].rk].name} detached. Drag it anywhere; Reattach puts it back into the nearest gap.`
+        : `${mods.length} pieces detached as single modules. Select one to reattach it.`,
+    )
+  }
+  const detachPiece = (i) => detachPieces([i])
+  const deletePieces = (list) => {
+    setRibbon((r) => {
+      const left = r.pieces.filter((_, k) => !list.includes(k))
+      return { ...r, pieces: left.length ? left : r.pieces }
+    })
+    setChosen(null)
   }
 
   // Reattach: a module goes back into the ribbon, into the nearest gap; with no gap, at the nearest point of the ribbon.
   const reattach = (it) => {
-    const piece = { kind: it.rk, len: it.len, ...(it.flip ? { flip: true } : {}) }
+    const piece = { kind: it.rk, len: it.len, ...(it.flip ? { flip: true } : {}), ...cleanSize({ kind: it.rk, w: it.w, h: it.h }) }
     const pieces = ribbon.pieces
     const dist = (s) => {
       const a = along(s)
@@ -317,12 +377,20 @@ export default function App() {
     setChosen(at)
   }
   const selModule = selItems.length === 1 && selItems[0].kind === 'rmod' ? selItems[0] : null
-  const editModule = (change) =>
-    changeItems((it) => (it.kind === 'rmod' ? { ...it, ...change, len: Math.max(RIBBON_KINDS[change.rk ?? it.rk].min, change.len ?? it.len) } : it))
-  const setModuleLen = (e) => +e.target.value > 0 && editModule({ len: Math.round(+e.target.value * 10) / 10 })
+  const editModule = (change) => changeItems((it) => (it.kind === 'rmod' ? sized(it, change) : it))
+  // the size boxes: what you type becomes the piece's own width / height / length
+  const sizeChange = (key, value) => {
+    const v = +value
+    if (!(v > 0)) return null
+    if (key === 'len') return { len: Math.round(v * 10) / 10 }
+    if (key === 'w') return { w: Math.min(12, Math.max(0.3, Math.round(v * 100) / 100)) }
+    return { h: Math.min(10, Math.max(0.25, Math.round(v * 100) / 100)) }
+  }
   const piece = chosen != null ? ribbon.pieces[chosen] : null
   const startAt = chosen != null ? ribbon.pieces.slice(0, chosen).reduce((a, p) => a + p.len, 0) : 0
-  const setLen = (e) => +e.target.value > 0 && editPiece(chosen, { len: Math.round(+e.target.value * 10) / 10 })
+  const chosenPieces = chosenList.map((i) => ribbon.pieces[i]).filter(Boolean)
+  // the size of a piece or module as you see it: its own width / height, or its usual one
+  const sizeOf = (kind, p, bw) => ({ w: pieceWidth(kind, bw, p.w), h: pieceTop(kind, p.len, p.h), len: p.len })
   const setWidth = (e) => +e.target.value >= 0.6 && setRibbon((r) => ({ ...r, width: Math.min(8, Math.round(+e.target.value * 10) / 10) }))
 
   const addMiddle = (kind) => {
@@ -363,8 +431,8 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (chosen != null && chosen >= ribbon.pieces.length) setChosen(null)
-  }, [chosen, ribbon.pieces.length])
+    if (chosenList.some((i) => i >= ribbon.pieces.length)) setChosenList((l) => l.filter((i) => i < ribbon.pieces.length))
+  }, [chosenList, ribbon.pieces.length])
 
   useEffect(() => {
     const key = (e) => {
@@ -384,6 +452,7 @@ export default function App() {
       }
       if ((e.key === 'c' || e.key === 'C') && selItems.length === 1) startConnect()
       if ((e.key === 'f' || e.key === 'F') && piece) editPiece(chosen, { flip: !piece.flip })
+      if ((e.key === 'f' || e.key === 'F') && chosenList.length > 1) editPieces(chosenList, { flip: !chosenPieces.every((p) => p.flip) })
       if ((e.key === 'f' || e.key === 'F') && selModule) editModule({ flip: !selModule.flip })
       if (e.key === 'l' || e.key === 'L') lock()
       if (e.key === 'u' || e.key === 'U') unlock()
@@ -467,7 +536,7 @@ export default function App() {
           }} labels={labels} view={view}
           items={items} onSelectItem={pick} onMoveItem={moveItem} onDropKind={addItem} snap={snap} api={api}
           connect={connect} onGrip={onGrip} onTarget={onTarget}
-          ribbon={ribbon} chosen={chosen} onPickPiece={pickPiece}
+          ribbon={ribbon} chosen={chosenList} onPickPiece={pickPiece}
         />
         {connect && (
           <div className="connect-bar" role="status">
@@ -593,19 +662,18 @@ export default function App() {
                   </div>
                 </div>
               ))}
-              <div className="sizes">
-                <label>
-                  <span>Length</span>
-                  <input
-                    key={selModule.id + '-' + selModule.len}
-                    type="number" min={RIBBON_KINDS[selModule.rk].min} step="0.5"
-                    defaultValue={selModule.len}
-                    onBlur={setModuleLen}
-                    onKeyDown={(e) => e.key === 'Enter' && setModuleLen(e)}
-                  />
-                  <small>m</small>
-                </label>
-              </div>
+              <SizeBoxes
+                id={selModule.id}
+                vals={sizeOf(selModule.rk, selModule, selModule.bw)}
+                min={RIBBON_KINDS[selModule.rk].min}
+                heightOk={hasHeight(selModule.rk)}
+                custom={selModule.w != null || selModule.h != null}
+                onSet={(k, v) => {
+                  const c = sizeChange(k, v)
+                  if (c) editModule(c)
+                }}
+                onReset={() => editModule({ w: undefined, h: undefined })}
+              />
               <div className="actions">
                 <button className="primary" onClick={() => reattach(selModule)} title="Put it back into the ribbon: into the nearest gap, or at the nearest point">Reattach to the ribbon</button>
                 <button className={selModule.flip ? 'on' : ''} onClick={() => editModule({ flip: !selModule.flip })} title="Mirror it end to end (key F)">⇄ Flip</button>
@@ -633,19 +701,18 @@ export default function App() {
                   </div>
                 </div>
               ))}
-              <div className="sizes">
-                <label>
-                  <span>Length</span>
-                  <input
-                    key={chosen + '-' + piece.len}
-                    type="number" min={RIBBON_KINDS[piece.kind].min} step="0.5"
-                    defaultValue={piece.len}
-                    onBlur={setLen}
-                    onKeyDown={(e) => e.key === 'Enter' && setLen(e)}
-                  />
-                  <small>m</small>
-                </label>
-              </div>
+              <SizeBoxes
+                id={'p' + chosen}
+                vals={sizeOf(piece.kind, piece, ribbon.width)}
+                min={RIBBON_KINDS[piece.kind].min}
+                heightOk={hasHeight(piece.kind)}
+                custom={piece.w != null || piece.h != null}
+                onSet={(k, v) => {
+                  const c = sizeChange(k, v)
+                  if (c) editPiece(chosen, c)
+                }}
+                onReset={() => editPiece(chosen, { w: undefined, h: undefined })}
+              />
               <div className="actions">
                 <button className="primary" onClick={() => setView({ name: 'piece', i: chosen, t: Date.now() })}>Zoom to it</button>
                 <button disabled={chosen === 0} onClick={() => setChosen(chosen - 1)}>← Previous</button>
@@ -662,12 +729,61 @@ export default function App() {
             </section>
           )}
 
+          {chosenList.length > 1 && (() => {
+            const kinds = new Set(chosenPieces.map((p) => p.kind))
+            const all = chosenPieces.map((p) => sizeOf(p.kind, p, ribbon.width))
+            const same = (k) => (all.every((s) => s[k] === all[0][k]) ? all[0][k] : null)
+            const flipped = chosenPieces.every((p) => p.flip)
+            return (
+              <section className="piece">
+                <h2>
+                  <span className="dot" style={{ background: COBALT }} /> {chosenList.length} ribbon pieces selected
+                </h2>
+                <p className="muted">
+                  {[...chosenList].sort((a, b) => a - b).map((i) => `${i + 1} ${RIBBON_KINDS[ribbon.pieces[i]?.kind]?.name ?? ''}`).join(' · ')}. Everything you change here
+                  changes all of them. Shift-click a piece again to take it out.
+                </p>
+                {RIBBON_GROUPS.map(([group, ks]) => (
+                  <div key={group} className="kind-group">
+                    <h3>{group}</h3>
+                    <div className="titles ribbon-kinds">
+                      {ks.map((k) => (
+                        <button key={k} className={kinds.size === 1 && kinds.has(k) ? 'on' : ''} onClick={() => editPieces(chosenList, { kind: k })}>
+                          {RIBBON_KINDS[k].name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <SizeBoxes
+                  id={'m' + chosenList.join('.')}
+                  vals={{ w: same('w'), len: same('len'), h: same('h') }}
+                  min={Math.max(...chosenPieces.map((p) => RIBBON_KINDS[p.kind].min))}
+                  heightOk={chosenPieces.some((p) => hasHeight(p.kind))}
+                  custom={chosenPieces.some((p) => p.w != null || p.h != null)}
+                  onSet={(k, v) => {
+                    const c = sizeChange(k, v)
+                    if (c) editPieces(chosenList, c)
+                  }}
+                  onReset={() => editPieces(chosenList, { w: undefined, h: undefined })}
+                />
+                <div className="actions">
+                  <button className={flipped ? 'on' : ''} onClick={() => editPieces(chosenList, { flip: !flipped })} title="Mirror them end to end (key F)">⇄ Flip all</button>
+                  <button disabled={chosenPieces.every((p) => RIBBON_KINDS[p.kind].gap)} onClick={() => detachPieces(chosenList)} title="Take them out of the ribbon as single modules; gaps stay">Detach all</button>
+                  <button onClick={() => setChosen(null)}>Deselect</button>
+                  <button className="danger" disabled={chosenList.length >= ribbon.pieces.length} onClick={() => deletePieces(chosenList)}>Delete pieces</button>
+                </div>
+                <p className="muted small">A height only changes pieces that have one; flat paths stay flat. Pieces after them slide along when you change a length.</p>
+              </section>
+            )
+          })()}
+
           <section>
             <h2><span className="dot" style={{ background: COBALT }} /> Ribbon</h2>
             <p className="muted">
               One continuous cobalt band, about {Math.round(routeLen)} m. It starts in the green at Parkstraße / Haydnstraße, winds through the garage yards and twice right through three garages
               (cleared inside), lifts into two repair ramps and two lookouts, turns at the corner of Richard-Wagner-Straße and Stollberger Straße, and ends in
-              the green under the school. On the way it folds into places to rest, meet, play and do sport. Click it in the model to change a piece.
+              the green under the school. On the way it folds into places to rest, meet, play and do sport. Click it in the model to change a piece; Shift-click to pick several at once.
             </p>
             <label className="check">
               <input type="checkbox" checked={ribbon.on} onChange={(e) => setRibbon((r) => ({ ...r, on: e.target.checked }))} /> Show the ribbon
@@ -682,9 +798,9 @@ export default function App() {
             <ol className="pieces">
               {ribbon.pieces.map((p, i) => (
                 <li key={i}>
-                  <button className={i === chosen ? 'on' : ''} onClick={() => pickPiece(i)}>
+                  <button className={chosenList.includes(i) ? 'on' : ''} onClick={(e) => pickPiece(i, e.shiftKey || e.ctrlKey || e.metaKey)}>
                     <span>{RIBBON_KINDS[p.kind].name}</span>
-                    <small>{p.flip ? '⇄ ' : ''}{p.len} m</small>
+                    <small>{p.flip ? '⇄ ' : ''}{p.w != null || p.h != null ? '◆ ' : ''}{p.len} m</small>
                   </button>
                 </li>
               ))}

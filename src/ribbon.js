@@ -142,9 +142,34 @@ const monkeyHeight = (s, L) => {
 // Seesaw: a plank from a 35 cm seat up to 1 m, with a handle near each end and a pivot under the middle.
 const seesawHeight = (s, L) => top(0.35 + (0.65 * (s - 0.3)) / (L - 0.6))
 
+// Walls: the ribbon folds straight up into a wall across its whole width, over the top and back down; 20 cm thick.
+// An opening is cut through both faces: [from, to] in height, and how wide. Extra points sit at its edges so they stay sharp.
+function wallShape(L, H, open) {
+  const a = L / 2 - 0.05
+  const b = L / 2 + 0.05
+  const t = top(H)
+  const face = open ? [open[0] - 0.01, open[0], open[1], open[1] + 0.01] : []
+  return [[0, B], [a, B], ...face.map((h) => [a, h]), [a, t], [b, t], ...[...face].reverse().map((h) => [b, h]), [b, B], [L, B]]
+}
+// an opening has to stay under the top of the wall; on a very low wall there is no room for it
+const fit = (o0, o1, H) => {
+  const hi = Math.min(o1, top(H) - 0.06)
+  return hi - o0 >= 0.1 ? [o0, hi] : null
+}
+const windowAt = (H) => {
+  const sill = Math.max(0.3, Math.min(0.9, H * 0.375))
+  return fit(sill, H - Math.max(0.3, H * 0.17), H)
+}
+const doorAt = (H) => fit(0.15, Math.min(2.1, H - 0.3), H)
+const wallSlot = (at, wide) => (s, L, h, w, H) => {
+  const o = at(H)
+  return o && h >= o[0] - 1e-4 && h <= o[1] + 1e-4 ? wide(w) : 0
+}
+
 // The groups the panel shows the kinds in.
 export const RIBBON_GROUPS = [
-  ['Move', ['path', 'crossing', 'passage', 'stairs', 'gap']],
+  ['Move', ['path', 'crossing', 'passage', 'stairs', 'onewaystairs', 'gap']],
+  ['Walls', ['wall', 'wallwindow', 'walldoor']],
   ['Lifted', ['lookout', 'repair']],
   ['Rest', ['bench', 'chairs', 'daybed', 'shade']],
   ['Meet', ['table', 'picnic', 'stage', 'seats']],
@@ -251,6 +276,46 @@ export const RIBBON_KINDS = {
       const down = steps(n, 0.17, 0.3, L - 0.2 - n * 0.3, upS.at(-1)[1], -1)
       return [[0, B], [0.2, B], ...upS, ...down, [L, B]]
     },
+  },
+  // Kinds with a `height` draw themselves at the height you set (shape(L, H)); the others are stretched up or down to it.
+  onewaystairs: {
+    name: 'ONE-WAY STAIRS',
+    min: 2.5,
+    len: 4,
+    height: 1.5,
+    note: 'Stairs that only go up: steps of about 17 cm to a landing, then the ribbon drops straight down at the back. Flip it to climb the other way.',
+    shape: (L, H) => {
+      const n = Math.max(1, Math.round((H - 2 * B) / 0.17))
+      const tread = Math.min(0.28, (L - 1) / n) // shorter treads if the piece is short, so a 60 cm landing always fits
+      const upS = steps(n, (H - 2 * B) / n, tread, 0.2, B, 1)
+      return [[0, B], [0.2, B], ...upS, [L - 0.2, top(H)], [L - 0.2, B], [L, B]]
+    },
+  },
+  wall: {
+    name: 'WALL',
+    min: 1,
+    len: 1.5,
+    height: 2.4,
+    note: 'The ribbon folds straight up into a 20 cm wall across its width, then back down.',
+    shape: (L, H) => wallShape(L, H),
+  },
+  wallwindow: {
+    name: 'WALL + WINDOW',
+    min: 1,
+    len: 1.5,
+    height: 2.4,
+    note: 'A wall with a window half as wide as the wall, its sill at 90 cm (on a 2.4 m wall).',
+    shape: (L, H) => wallShape(L, H, windowAt(H)),
+    slot: wallSlot(windowAt, (w) => w * 0.5),
+  },
+  walldoor: {
+    name: 'WALL + DOORWAY',
+    min: 1,
+    len: 1.5,
+    height: 2.4,
+    note: 'A wall with a 1 m wide doorway, 2.1 m high, to walk through. The band stays whole at the bottom: a 15 cm threshold.',
+    shape: (L, H) => wallShape(L, H, doorAt(H)),
+    slot: wallSlot(doorAt, () => 1),
   },
   seats: {
     name: 'SEAT STEPS',
@@ -384,16 +449,34 @@ export const RIBBON_KIND_IDS = Object.keys(RIBBON_KINDS)
 // A single blue module: one piece of ribbon on its own, straight. Its usual length, and its highest point.
 export function moduleLen(kind) {
   const p = DEFAULT_PIECES.find((q) => q.kind === kind)
-  return Math.max(RIBBON_KINDS[kind].min, p ? Math.min(p.len, 17) : 4)
+  return Math.max(RIBBON_KINDS[kind].min, p ? Math.min(p.len, 17) : (RIBBON_KINDS[kind].len ?? 4))
 }
-export function pieceTop(kind, len, flip) {
+
+// Sizes you set yourself: a piece or module can carry its own width `w` and top height `h` (metres).
+// Without them it keeps its usual size, so pieces you don't change look exactly as before.
+// The shape at height H: kinds with their own height use it; the others are stretched up or down so their top is at H.
+export function pieceShape(kind, L, H) {
+  const K = RIBBON_KINDS[kind]
+  if (K.height) return K.shape(L, H ?? K.height)
+  const pts = K.shape(L)
+  if (H == null) return pts
+  let hi = B
+  for (const [, h] of pts) hi = Math.max(hi, h)
+  if (hi - B < 0.02) return pts // flat pieces have no height to change
+  const f = Math.max(0, H - 2 * B) / (hi - B)
+  return pts.map(([s, h]) => [s, B + (h - B) * f])
+}
+// can you change this kind's height? (not for flat ones like PATH)
+export const hasHeight = (kind) => !!RIBBON_KINDS[kind].height || pieceTop(kind, Math.max(RIBBON_KINDS[kind].min, 4)) > 0.15
+export const pieceWidth = (kind, bandWidth, w) => w ?? Math.round(bandWidth * (RIBBON_KINDS[kind].wide ?? 1) * 100) / 100
+export function pieceTop(kind, len, H) {
   let top = 0
-  for (const [, h] of RIBBON_KINDS[kind].shape(len)) top = Math.max(top, h + B)
+  for (const [, h] of pieceShape(kind, len, H)) top = Math.max(top, h + B)
   return Math.round(top * 100) / 100
 }
 // the straight module as a mesh, running along its own length (front at +z)
-export function buildModule({ rk, len, flip, bw }) {
-  return buildRibbon({ width: bw, pieces: [{ kind: rk, len, flip }] }, [[0, -len / 2], [0, len / 2]]).geo
+export function buildModule({ rk, len, flip, bw, w, h }) {
+  return buildRibbon({ width: bw, pieces: [{ kind: rk, len, flip, w, h }] }, [[0, -len / 2], [0, len / 2]]).geo
 }
 
 // The ribbon as it starts, about 474 m. The three CROSSING pieces lie over the streets.
@@ -432,9 +515,16 @@ export function cleanRibbon(r) {
   if (!r || !Array.isArray(r.pieces) || r.v !== VERSION) return DEFAULT_RIBBON
   const pieces = r.pieces
     .filter((p) => p && RIBBON_KINDS[p.kind])
-    .map((p) => ({ kind: p.kind, len: Math.max(RIBBON_KINDS[p.kind].min, Math.round((+p.len || 0) * 10) / 10), ...(p.flip ? { flip: true } : {}) }))
+    .map((p) => ({ kind: p.kind, len: Math.max(RIBBON_KINDS[p.kind].min, Math.round((+p.len || 0) * 10) / 10), ...(p.flip ? { flip: true } : {}), ...cleanSize(p) }))
   const width = +r.width >= 0.6 && +r.width <= 8 ? +r.width : DEFAULT_WIDTH
   return { v: VERSION, on: r.on !== false, width, pieces: pieces.length ? pieces : DEFAULT_PIECES }
+}
+// a width you set: 0.3–12 m; a height: 0.25–10 m
+export function cleanSize(p) {
+  const out = {}
+  if (+p.w >= 0.3 && +p.w <= 12) out.w = Math.round(+p.w * 100) / 100
+  if (+p.h >= 0.25 && +p.h <= 10 && hasHeight(p.kind ?? p.rk)) out.h = Math.round(+p.h * 100) / 100
+  return out
 }
 
 // The plan curve, in three.js space (x east, z south).
@@ -449,7 +539,7 @@ export function layout(pieces, total) {
   pieces.forEach((p, i) => {
     if (s >= total - 0.01) return
     const len = Math.min(p.len, total - s)
-    out.push({ i, kind: p.kind, s0: s, s1: s + len, flip: !!p.flip })
+    out.push({ i, kind: p.kind, s0: s, s1: s + len, flip: !!p.flip, w: p.w, h: p.h })
     s += len
   })
   if (s < total - 0.01) out.push({ i: -1, kind: 'path', s0: s, s1: total }) // the rest lies flat
@@ -494,7 +584,7 @@ export function buildRibbon(ribbon, route = ROUTE) {
   for (const [k, p] of parts.entries()) {
     const L = p.s1 - p.s0
     const kind = RIBBON_KINDS[p.kind]
-    let shape = L >= kind.min - 0.01 ? kind.shape(L) : [[0, B], [L, B]]
+    let shape = L >= kind.min - 0.01 ? pieceShape(p.kind, L, p.h) : [[0, B], [L, B]]
     // flipped: the same piece mirrored end to end, so stairs, ramps and seats face the other way
     if (p.flip) shape = shape.map(([a, h]) => [L - a, h]).reverse()
     const pts = soften(shape)
@@ -512,7 +602,7 @@ export function buildRibbon(ribbon, route = ROUTE) {
   }
 
   // width along the ribbon: shades get wider, with a soft change at their ends
-  const fac = parts.map((p) => RIBBON_KINDS[p.kind].wide ?? 1)
+  const fac = parts.map((p) => (p.w ? p.w / ribbon.width : (RIBBON_KINDS[p.kind].wide ?? 1)))
   const widthAt = (s, k) => {
     const p = parts[k]
     const ease = 0.9
@@ -544,7 +634,7 @@ export function buildRibbon(ribbon, route = ROUTE) {
     const kind = RIBBON_KINDS[parts[k].kind]
     const pl = parts[k].s1 - parts[k].s0
     const sl = parts[k].flip ? parts[k].s1 - s : s - parts[k].s0
-    const g = kind.slot ? Math.min(w - 0.3, Math.max(0, kind.slot(sl, pl))) : 0
+    const g = kind.slot ? Math.min(w - 0.3, Math.max(0, kind.slot(sl, pl, h, w, parts[k].h ?? kind.height))) : 0
     return { P: P.setY(h), side, nrm, w, g, k }
   })
 

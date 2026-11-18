@@ -7,7 +7,7 @@ import { COBALT, RIBBON_KINDS, buildModule } from './ribbon.js'
 
 // A single blue module: one straight piece of the ribbon.
 function Module({ it, picked }) {
-  const geo = useMemo(() => buildModule(it), [it.rk, it.len, it.flip, it.bw])
+  const geo = useMemo(() => buildModule(it), [it.rk, it.len, it.flip, it.bw, it.w, it.h])
   useEffect(() => () => geo.dispose(), [geo])
   return (
     <mesh geometry={geo} castShadow receiveShadow userData={{ stack: true, item: it.id, name: `${RIBBON_KINDS[it.rk].name} module${it.flip ? ' (flipped)' : ''}` }}>

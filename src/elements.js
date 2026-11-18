@@ -1,5 +1,5 @@
 import { GARAGES } from './garages.js'
-import { COBALT, DEFAULT_WIDTH, RIBBON_KINDS, pieceTop } from './ribbon.js'
+import { COBALT, DEFAULT_WIDTH, RIBBON_KINDS, pieceTop, pieceWidth } from './ribbon.js'
 
 // The elements you can drag into the model. All sizes in metres.
 // Each element is built from simple parts: box, cyl (cylinder), ball or cone.
@@ -111,7 +111,7 @@ export const KIND_IDS = Object.keys(KINDS).filter((k) => !KINDS[k].hidden)
 
 // The real size of an element: what you typed in, or its normal size.
 export function dims(it) {
-  if (it.kind === 'rmod') return { w: it.bw * (RIBBON_KINDS[it.rk].wide ?? 1), d: it.len, h: pieceTop(it.rk, it.len) }
+  if (it.kind === 'rmod') return { w: pieceWidth(it.rk, it.bw, it.w), d: it.len, h: pieceTop(it.rk, it.len, it.h) }
   const k = KINDS[it.kind]
   return { w: it.sw ?? k.w, d: it.sd ?? k.d, h: it.sh ?? k.h }
 }

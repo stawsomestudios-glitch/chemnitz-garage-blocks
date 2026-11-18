@@ -337,7 +337,7 @@ function useItems({ title, block, picked, labels, items, tags, chosen, pass }) {
     // the ribbon's pieces (flat path pieces stay unlabelled unless picked)
     if (labels === 'titles')
       for (const t of tags) {
-        const sel = t.i === chosen
+        const sel = chosen.includes(t.i)
         if ((t.kind === 'path' || t.kind === 'gap') && !sel) continue
         list.push({ key: `rb${t.i}|${t.kind}`, piece: t.i, p: t.p, text: RIBBON_KINDS[t.kind].name, color: COBALT, ribbon: true, sel, rank: sel ? 0 : 2, order: 2000 + t.i })
       }
@@ -410,7 +410,7 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
             ref={(el) => (refs.current[i] = el)}
             className={['tag', it.empty && 'empty', it.block && 'block', it.ribbon && 'ribbon', it.sel && 'sel'].filter(Boolean).join(' ')}
             style={{ '--c': it.color ?? '#b9b4a9' }}
-            onClick={(e) => (it.ribbon ? onPickPiece(it.piece) : it.first && onPick(it.first, e.shiftKey || e.ctrlKey || e.metaKey))}
+            onClick={(e) => (it.ribbon ? onPickPiece(it.piece, e.shiftKey || e.ctrlKey || e.metaKey) : it.first && onPick(it.first, e.shiftKey || e.ctrlKey || e.metaKey))}
           >
             {it.text}
           </button>

@@ -10,11 +10,12 @@ export default function Ribbon({ built, chosen, onPickPiece, connecting }) {
   const { geo, piece, parts } = built
   // names for the Rhino file: each piece is saved as its own object, e.g. "26 LOOKOUT"
   const names = useMemo(() => Object.fromEntries(parts.filter((p) => p.i >= 0).map((p) => [p.i, `${p.i + 1} ${RIBBON_KINDS[p.kind].name}${p.flip ? ' (flipped)' : ''}`])), [parts])
-  // colour every vertex: cobalt, and lighter for the piece you picked
+  // colour every vertex: cobalt, and lighter for the pieces you picked
   const colours = useMemo(() => {
+    const on = new Set(chosen)
     const c = new Float32Array(piece.length * 3)
     for (let v = 0; v < piece.length; v++) {
-      const col = piece[v] === chosen ? PICKED : BASE
+      const col = on.has(piece[v]) ? PICKED : BASE
       c[v * 3] = col.r
       c[v * 3 + 1] = col.g
       c[v * 3 + 2] = col.b
@@ -33,7 +34,7 @@ export default function Ribbon({ built, chosen, onPickPiece, connecting }) {
         if (connecting) return
         e.stopPropagation()
         if (e.delta > 6 || !e.face) return
-        onPickPiece(piece[e.face.a])
+        onPickPiece(piece[e.face.a], e.shiftKey || e.ctrlKey || e.metaKey)
       }}
       onPointerOver={() => (document.body.style.cursor = connecting ? '' : 'pointer')}
       onPointerOut={() => (document.body.style.cursor = '')}
