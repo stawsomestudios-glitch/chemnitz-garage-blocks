@@ -537,9 +537,9 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
         <Context site={site} look={look} />
         <Garages title={title} block={block} picked={picked} onPick={onPick} connecting={passive} pass={pass} look={look} />
         {pass && <Passages pass={pass} look={look} />}
-        {built && <Ribbon built={built} chosen={active === 'main' ? chosen : []} onPickPiece={(i, add) => onPickPiece(i, add, 'main')} connecting={passive} />}
+        {built && <Ribbon built={built} rib={ribbon} chosen={active === 'main' ? chosen : []} onPickPiece={(i, add) => onPickPiece(i, add, 'main')} connecting={passive} />}
         {builtDrawn.map(({ d, built: b }) => (
-          <Ribbon key={d.id} built={b} layer={`Ribbon - ${d.name}`} chosen={active === d.id ? chosen : []} onPickPiece={(i, add) => onPickPiece(i, add, d.id)} connecting={passive} />
+          <Ribbon key={d.id} built={b} rib={d} layer={`Ribbon - ${d.name}`} chosen={active === d.id ? chosen : []} onPickPiece={(i, add) => onPickPiece(i, add, d.id)} connecting={passive} />
         ))}
         {wand && <Wand wand={wand} onWand={onWand} />}
         <Elements items={items} picked={picked} onSelect={onSelectItem} onMove={onMoveItem} snap={snap} connecting={passive} />

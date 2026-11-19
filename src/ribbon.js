@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { MATERIALS } from './materials.js'
 import { GARAGES } from './garages.js'
 
 // The ribbon: one continuous cobalt band that winds through the garages and links three places:
@@ -515,9 +516,16 @@ export function cleanRibbon(r) {
   if (!r || !Array.isArray(r.pieces) || r.v !== VERSION) return DEFAULT_RIBBON
   const pieces = r.pieces
     .filter((p) => p && RIBBON_KINDS[p.kind])
-    .map((p) => ({ kind: p.kind, len: Math.max(RIBBON_KINDS[p.kind].min, Math.round((+p.len || 0) * 10) / 10), ...(p.flip ? { flip: true } : {}), ...cleanSize(p), ...(p.label ? { label: String(p.label).slice(0, 60) } : {}) }))
+    .map((p) => ({ kind: p.kind, len: Math.max(RIBBON_KINDS[p.kind].min, Math.round((+p.len || 0) * 10) / 10), ...(p.flip ? { flip: true } : {}), ...cleanSize(p), ...(p.label ? { label: String(p.label).slice(0, 60) } : {}), ...cleanLook(p) }))
   const width = +r.width >= 0.6 && +r.width <= 8 ? +r.width : DEFAULT_WIDTH
-  return { v: VERSION, on: r.on !== false, width, pieces: pieces.length ? pieces : DEFAULT_PIECES }
+  return { v: VERSION, on: r.on !== false, width, pieces: pieces.length ? pieces : DEFAULT_PIECES, ...cleanLook(r) }
+}
+// a material (see src/materials.js) and a colour (#rrggbb) you chose
+export function cleanLook(p) {
+  const out = {}
+  if (p?.mat && MATERIALS[p.mat]) out.mat = p.mat
+  if (typeof p?.col === 'string' && /^#[0-9a-f]{6}$/i.test(p.col)) out.col = p.col.toLowerCase()
+  return out
 }
 // a width you set: 0.3–12 m; a height: 0.25–10 m
 export function cleanSize(p) {
@@ -616,6 +624,9 @@ export function buildRibbon(ribbon, route = ROUTE) {
   }
 
   // a section through the band at every profile point
+  // distance along the folded band (up and over the folds too), so a wood grain runs along it
+  const arc = []
+  prof.forEach((q, i) => arc.push(i ? arc[i - 1] + Math.hypot(q[0] - prof[i - 1][0], q[1] - prof[i - 1][1]) : 0))
   const sec = prof.map(([s, h, k], i) => {
     const a = prof[Math.max(0, i - 1)]
     const c = prof[Math.min(prof.length - 1, i + 1)]
@@ -635,11 +646,13 @@ export function buildRibbon(ribbon, route = ROUTE) {
     const pl = parts[k].s1 - parts[k].s0
     const sl = parts[k].flip ? parts[k].s1 - s : s - parts[k].s0
     const g = kind.slot ? Math.min(w - 0.3, Math.max(0, kind.slot(sl, pl, h, w, parts[k].h ?? kind.height))) : 0
-    return { P: P.setY(h), side, nrm, w, g, k }
+    return { P: P.setY(h), side, nrm, w, g, k, a: arc[i] }
   })
 
   const pos = []
+  const uv = [] // texture position: [along the band, across it], in metres
   const piece = []
+  const tex = (q, v) => uv.push(q.a, v.clone().sub(q.P).dot(q.side))
   const idx = []
   // a stretch from section i to i + 1 is left out when it lies in a GAP
   const draw = (i) => !RIBBON_KINDS[parts[sec[i + 1].k].kind].gap
@@ -649,6 +662,7 @@ export function buildRibbon(ribbon, route = ROUTE) {
       for (const f of [fa, fb]) {
         const v = f(q)
         pos.push(v.x, v.y, v.z)
+        tex(q, v)
         piece.push(parts[q.k].i)
       }
     }
@@ -683,6 +697,7 @@ export function buildRibbon(ribbon, route = ROUTE) {
       for (const [lat, sy] of [[hi, 1], [lo, 1], [hi, -1], [lo, -1]]) {
         const v = at(lat, sy)(q)
         pos.push(v.x, v.y, v.z)
+        tex(q, v)
         piece.push(parts[q.k].i)
       }
       if (flip) idx.push(base, base + 2, base + 1, base + 1, base + 2, base + 3)
@@ -692,6 +707,7 @@ export function buildRibbon(ribbon, route = ROUTE) {
 
   const geo = new THREE.BufferGeometry()
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
   geo.setIndex(idx)
   geo.computeVertexNormals()
 

@@ -4,16 +4,17 @@ import * as THREE from 'three'
 import { GARAGE_POINTS, KINDS, carColour, carParts, dims, localAnchors, magnet, snapPoint, toWorld } from './elements.js'
 import { TITLE } from './titles.js'
 import { COBALT, RIBBON_KINDS, buildModule } from './ribbon.js'
+import { lookOf, makeMaterial } from './materials.js'
 
 // A single blue module: one straight piece of the ribbon.
 function Module({ it, picked }) {
   const geo = useMemo(() => buildModule(it), [it.rk, it.len, it.flip, it.bw, it.w, it.h])
   useEffect(() => () => geo.dispose(), [geo])
-  return (
-    <mesh geometry={geo} castShadow receiveShadow userData={{ stack: true, item: it.id, name: `${RIBBON_KINDS[it.rk].name} module${it.flip ? ' (flipped)' : ''}` }}>
-      <meshStandardMaterial color={picked ? '#5b9bff' : (it.col ?? COBALT)} roughness={0.75} side={THREE.DoubleSide} />
-    </mesh>
-  )
+  // its material and colour; light blue while picked
+  const look = lookOf({ mat: it.mat, col: it.col })
+  const material = useMemo(() => (picked ? makeMaterial('painted', '#5b9bff') : makeMaterial(look.mat, look.colour)), [picked, look.mat, look.colour])
+  useEffect(() => () => material.dispose(), [material])
+  return <mesh geometry={geo} material={material} castShadow receiveShadow userData={{ stack: true, item: it.id, name: `${RIBBON_KINDS[it.rk].name} module${it.flip ? ' (flipped)' : ''}` }} />
 }
 
 const PI = Math.PI
@@ -49,6 +50,7 @@ export function Parts({ parts, item }) {
 }
 
 export function colourOf(it) {
+  if (it.kind === 'rmod') return lookOf({ mat: it.mat, col: it.col }).colour
   if (it.col) return it.col // a colour you chose yourself
   if (it.title && TITLE[it.title]) return TITLE[it.title].color
   return KINDS[it.kind].colour ?? carColour(it.id)

@@ -6,7 +6,8 @@ import { ELEMENT_GROUPS, KINDS, alignRot, dims, placeByGrip, snapPoint } from '.
 import { MAP_STYLES, MAP_STYLE_IDS } from './mapStyles.js'
 import ColourField, { parseColour } from './ColourField.jsx'
 import { colourOf } from './Elements.jsx'
-import { COBALT, DEFAULT_RIBBON, RIBBON_GROUPS, RIBBON_KINDS, STREETS, VERSION, cleanRibbon, cleanSize, hasHeight, moduleLen, pieceTop, pieceWidth, routeCurve } from './ribbon.js'
+import { MATERIALS, MATERIAL_IDS, lookOf, swatchOf } from './materials.js'
+import { COBALT, DEFAULT_RIBBON, RIBBON_GROUPS, RIBBON_KINDS, STREETS, VERSION, cleanLook, cleanRibbon, cleanSize, hasHeight, moduleLen, pieceTop, pieceWidth, routeCurve } from './ribbon.js'
 
 const BASE = import.meta.env.BASE_URL
 const KEY = 'chemnitz-garage-blocks-v1'
@@ -65,6 +66,7 @@ function clean(s) {
         out.len = Math.max(RIBBON_KINDS[rk].min, Math.round(num(it.len) * 10) / 10 || moduleLen(rk))
         out.bw = +it.bw >= 0.6 && +it.bw <= 8 ? +it.bw : 2.4
         if (it.flip) out.flip = true
+        if (MATERIALS[it.mat]) out.mat = it.mat
         Object.assign(out, cleanSize({ kind: rk, w: it.w, h: it.h }))
       }
       return out
@@ -87,7 +89,7 @@ function cleanDrawn(list) {
     .map((d, n) => {
       const route = d.route.filter((p) => Array.isArray(p) && p.every((v) => Number.isFinite(+v))).map(([x, y]) => [+x, +y])
       const r = cleanRibbon({ v: VERSION, on: true, width: d.width, pieces: Array.isArray(d.pieces) && d.pieces.length ? d.pieces : [{ kind: 'path', len: 5 }] })
-      return { id: String(d.id ?? 'd' + n), name: String(d.name ?? 'Drawn ribbon ' + (n + 1)).slice(0, 60), route, width: r.width, pieces: r.pieces }
+      return { id: String(d.id ?? 'd' + n), name: String(d.name ?? 'Drawn ribbon ' + (n + 1)).slice(0, 60), route, width: r.width, pieces: r.pieces, ...cleanLook(d) }
     })
     .filter((d) => d.route.length >= 2)
 }
@@ -160,6 +162,29 @@ function download(name, text, type) {
   a.download = name
   a.click()
   URL.revokeObjectURL(a.href)
+}
+
+// The material of a ribbon, a piece or a module, and its colour. `inherit` adds a "same as the ribbon" choice.
+function MaterialPicker({ look, own, inherit, onMat, onCol }) {
+  return (
+    <div className="mat-picker">
+      <div className="mat-grid">
+        {inherit && (
+          <button className={!own.mat && !own.col ? 'on' : ''} onClick={() => onMat(null)} title="Take the ribbon's material and colour">
+            <span className="mat-sw inherit" />
+            {inherit}
+          </button>
+        )}
+        {MATERIAL_IDS.map((m) => (
+          <button key={m} className={(inherit ? own.mat : look.mat) === m ? 'on' : ''} onClick={() => onMat(m)}>
+            <span className="mat-sw" style={{ background: swatchOf(m) }} />
+            {MATERIALS[m].name}
+          </button>
+        ))}
+      </div>
+      <ColourField label="Colour" value={look.colour} changed={!!own.col} onChange={onCol} onReset={() => onCol(null)} />
+    </div>
+  )
 }
 
 // Width, length and height boxes for ribbon pieces and modules. An empty box ("mixed") means the picked pieces differ.
@@ -338,7 +363,7 @@ export default function App() {
     setPicked(new Set([it.id]))
   }
   const moveItem = (id, pos) => setPlan((p) => ({ ...p, items: p.items.map((it) => (it.id === id ? { ...it, ...pos } : it)) }), 'move:' + id)
-  const changeItems = (fn) => setPlan((p) => ({ ...p, items: p.items.map((it) => (picked.has(it.id) ? fn(it) : it)) }))
+  const changeItems = (fn, key) => setPlan((p) => ({ ...p, items: p.items.map((it) => (picked.has(it.id) ? fn(it) : it)) }), key)
   const rotate = (deg) => changeItems((it) => ({ ...it, rot: (it.rot + deg + 360) % 360 }))
   const removeItems = () => {
     setPlan((p) => ({ ...p, items: p.items.filter((it) => !picked.has(it.id)) }))
@@ -392,9 +417,19 @@ export default function App() {
   const [active, setActive] = useState('main')
   const cur = active === 'main' ? ribbon : (drawn.find((d) => d.id === active) ?? ribbon)
   const curId = cur === ribbon ? 'main' : active
-  const setRibbon = (fn) => setPlan((p) => ({ ...p, ribbon: fn(p.ribbon) }))
-  const setCur = (fn) => (curId === 'main' ? setRibbon(fn) : setPlan((p) => ({ ...p, drawn: (p.drawn ?? []).map((d) => (d.id === curId ? fn(d) : d)) })))
-  const setDrawn = (id, change) => setPlan((p) => ({ ...p, drawn: (p.drawn ?? []).map((d) => (d.id === id ? { ...d, ...change } : d)) }))
+  const setRibbon = (fn, key) => setPlan((p) => ({ ...p, ribbon: fn(p.ribbon) }), key)
+  const setCur = (fn, key) => (curId === 'main' ? setRibbon(fn, key) : setPlan((p) => ({ ...p, drawn: (p.drawn ?? []).map((d) => (d.id === curId ? fn(d) : d)) }), key))
+  const setDrawn = (id, change, key) => setPlan((p) => ({ ...p, drawn: (p.drawn ?? []).map((d) => (d.id === id ? drop({ ...d, ...change }) : d)) }), key)
+  // leaves out a material or colour set back to "usual"
+  const drop = (o) => {
+    for (const k of ['mat', 'col']) if (o[k] == null) delete o[k]
+    return o
+  }
+  // the material of a whole ribbon; a new material starts in its usual colour
+  const ribbonLook = (set) => ({
+    onMat: (m) => set((r) => drop({ ...r, mat: m ?? undefined, col: undefined })),
+    onCol: (c) => set((r) => drop({ ...r, col: c ?? undefined }), 'ribcol'),
+  })
   // Shift-click (or the "Add to selection" box) adds a piece to the ones picked, or takes it out again.
   const pickPiece = (i, add, rid = 'main') => {
     if (i == null || i < 0) return
@@ -409,10 +444,15 @@ export default function App() {
     const kind = change.rk ?? change.kind ?? (p.kind === 'rmod' ? p.rk : p.kind)
     const next = { ...p, ...change, len: Math.max(RIBBON_KINDS[kind].min, change.len ?? p.len) }
     if ((change.kind && change.kind !== p.kind) || (change.rk && change.rk !== p.rk) || !hasHeight(kind)) delete next.h
-    for (const k of ['w', 'h', 'label']) if (next[k] == null || next[k] === '') delete next[k]
+    for (const k of ['w', 'h', 'label', 'mat', 'col']) if (next[k] == null || next[k] === '') delete next[k]
     return next
   }
-  const editPieces = (list, change) => setCur((r) => ({ ...r, pieces: r.pieces.map((p, k) => (list.includes(k) ? sized(p, change) : p)) }))
+  const editPieces = (list, change, key) => setCur((r) => ({ ...r, pieces: r.pieces.map((p, k) => (list.includes(k) ? sized(p, change) : p)) }), key)
+  // the material and colour of the picked pieces: a new material starts in its usual colour; none = the ribbon's
+  const pieceLook = (list) => ({
+    onMat: (m) => editPieces(list, { mat: m ?? undefined, col: undefined }),
+    onCol: (c) => editPieces(list, { col: c ?? undefined }, 'piececol'),
+  })
   const editPiece = (i, change) => editPieces([i], change)
   const splitPiece = (i) =>
     setCur((r) => {
@@ -450,7 +490,9 @@ export default function App() {
     const mods = out.map((i) => {
       const p = cur.pieces[i]
       const at = alongOn(curCurve, cur.pieces.slice(0, i).reduce((a, q) => a + q.len, 0) + p.len / 2)
-      return { id: newId() + i, kind: 'rmod', rk: p.kind, len: p.len, bw: cur.width, x: at.x, y: at.y, z: 0, rot: at.rot, ...(p.flip ? { flip: true } : {}), ...cleanSize(p) }
+      const L = lookOf(p, cur) // the module looks just like the piece did
+      const look = { ...(L.mat !== 'painted' ? { mat: L.mat } : {}), ...(L.colour !== MATERIALS[L.mat].colour ? { col: L.colour } : {}) }
+      return { id: newId() + i, kind: 'rmod', rk: p.kind, len: p.len, bw: cur.width, x: at.x, y: at.y, z: 0, rot: at.rot, ...(p.flip ? { flip: true } : {}), ...cleanSize(p), ...look }
     })
     const gaps = (r) => ({ ...r, pieces: r.pieces.map((q, k) => (out.includes(k) ? { kind: 'gap', len: q.len } : q)) })
     setPlan((pl) => ({
@@ -477,7 +519,7 @@ export default function App() {
 
   // Reattach: a module goes back into the ribbon, into the nearest gap; with no gap, at the nearest point of the ribbon.
   const reattach = (it) => {
-    const piece = { kind: it.rk, len: it.len, ...(it.flip ? { flip: true } : {}), ...cleanSize({ kind: it.rk, w: it.w, h: it.h }) }
+    const piece = { kind: it.rk, len: it.len, ...(it.flip ? { flip: true } : {}), ...cleanSize({ kind: it.rk, w: it.w, h: it.h }), ...cleanLook(it) }
     const pieces = ribbon.pieces
     const dist = (s) => {
       const a = along(s)
@@ -523,7 +565,7 @@ export default function App() {
     setChosen(at)
   }
   const selModule = selItems.length === 1 && selItems[0].kind === 'rmod' ? selItems[0] : null
-  const editModule = (change) => changeItems((it) => (it.kind === 'rmod' ? sized(it, change) : it))
+  const editModule = (change, key) => changeItems((it) => (it.kind === 'rmod' ? sized(it, change) : it), key)
   // the size boxes: what you type becomes the piece's own width / height / length
   const sizeChange = (key, value) => {
     const v = +value
@@ -1103,6 +1145,13 @@ export default function App() {
                 }}
                 onReset={() => editModule({ w: undefined, h: undefined })}
               />
+              <h3 className="sub">Material</h3>
+              <MaterialPicker
+                look={lookOf({ mat: selModule.mat, col: selModule.col })}
+                own={{ mat: selModule.mat, col: selModule.col }}
+                onMat={(m) => editModule({ mat: m === 'painted' ? undefined : m, col: undefined })}
+                onCol={(c) => editModule({ col: c ?? undefined }, 'modcol')}
+              />
               <div className="actions">
                 <button className="primary" onClick={() => reattach(selModule)} title="Put it back into the ribbon: into the nearest gap, or at the nearest point">Reattach to the ribbon</button>
                 <button className={selModule.flip ? 'on' : ''} onClick={() => editModule({ flip: !selModule.flip })} title="Mirror it end to end (key F)">⇄ Flip</button>
@@ -1152,6 +1201,8 @@ export default function App() {
                 }}
                 onReset={() => editPiece(chosen, { w: undefined, h: undefined })}
               />
+              <h3 className="sub">Material</h3>
+              <MaterialPicker look={lookOf(piece, cur)} own={{ mat: piece.mat, col: piece.col }} inherit="Same as the ribbon" {...pieceLook([chosen])} />
               <div className="actions">
                 <button className="primary" onClick={() => setView({ name: 'piece', i: chosen, rid: curId, t: Date.now() })}>Zoom to it</button>
                 <button disabled={chosen === 0} onClick={() => setChosen(chosen - 1)}>← Previous</button>
@@ -1206,6 +1257,13 @@ export default function App() {
                   }}
                   onReset={() => editPieces(chosenList, { w: undefined, h: undefined })}
                 />
+                <h3 className="sub">Material of all {chosenList.length}</h3>
+                <MaterialPicker
+                  look={lookOf(chosenPieces[0], cur)}
+                  own={{ mat: chosenPieces.every((p) => p.mat === chosenPieces[0].mat) ? chosenPieces[0].mat : null, col: chosenPieces.some((p) => p.col) }}
+                  inherit="Same as the ribbon"
+                  {...pieceLook(chosenList)}
+                />
                 <div className="actions">
                   <button className={flipped ? 'on' : ''} onClick={() => editPieces(chosenList, { flip: !flipped })} title="Mirror them end to end (key F)">⇄ Flip all</button>
                   <button disabled={chosenPieces.every((p) => RIBBON_KINDS[p.kind].gap)} onClick={() => detachPieces(chosenList)} title="Take them out of the ribbon as single modules; gaps stay">Detach all</button>
@@ -1227,6 +1285,14 @@ export default function App() {
             <label className="check">
               <input type="checkbox" checked={ribbon.on} onChange={(e) => setRibbon((r) => ({ ...r, on: e.target.checked }))} /> Show the ribbon
             </label>
+            <h3 className="sub">Material of the whole ribbon</h3>
+            <p className="muted small">Pieces with a material of their own keep it. To change only some pieces, pick them (Shift-click for several) and choose a material there.</p>
+            <MaterialPicker look={lookOf(null, ribbon)} own={{ mat: ribbon.mat, col: ribbon.col }} {...ribbonLook(setRibbon)} />
+            {ribbon.pieces.some((p) => p.mat || p.col) && (
+              <div className="actions">
+                <button onClick={() => setRibbon((r) => ({ ...r, pieces: r.pieces.map(({ mat, col, ...p }) => p) }))}>Every piece like the ribbon</button>
+              </div>
+            )}
             <div className="sizes">
               <label>
                 <span>Width</span>
@@ -1238,7 +1304,7 @@ export default function App() {
               {ribbon.pieces.map((p, i) => (
                 <li key={i}>
                   <button className={curId === 'main' && chosenList.includes(i) ? 'on' : ''} onClick={(e) => pickPiece(i, e.shiftKey || e.ctrlKey || e.metaKey)}>
-                    <span>{p.label || RIBBON_KINDS[p.kind].name}</span>
+                    <span>{(p.mat || p.col) && <i className="mat-dot" style={{ background: swatchOf(lookOf(p, ribbon).mat, lookOf(p, ribbon).colour) }} />}{p.label || RIBBON_KINDS[p.kind].name}</span>
                     <small>{p.flip ? '⇄ ' : ''}{p.w != null || p.h != null ? '◆ ' : ''}{p.len} m</small>
                   </button>
                 </li>
@@ -1297,6 +1363,12 @@ export default function App() {
                       <small>m</small>
                     </label>
                   </div>
+                  <details className="drawn-mat">
+                    <summary>
+                      <span className="mat-sw" style={{ background: swatchOf(lookOf(null, d).mat, lookOf(null, d).colour) }} /> Material: {MATERIALS[lookOf(null, d).mat].name}
+                    </summary>
+                    <MaterialPicker look={lookOf(null, d)} own={{ mat: d.mat, col: d.col }} {...ribbonLook((fn, key) => setPlan((p) => ({ ...p, drawn: (p.drawn ?? []).map((x) => (x.id === d.id ? fn(x) : x)) }), key))} />
+                  </details>
                   <ol className="pieces">
                     {d.pieces.map((p, i) => (
                       <li key={i}>

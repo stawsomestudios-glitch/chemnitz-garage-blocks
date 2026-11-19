@@ -106,7 +106,7 @@ export async function export3dm({ scene, dots, filename }) {
 
     if (o.userData.pieces) {
       // the ribbon: one Rhino object per piece, named by its number and kind
-      const { piece, names, colour } = o.userData.pieces
+      const { piece, names, colour, colours } = o.userData.pieces
       const index = o.geometry.index.array
       const byPiece = new Map()
       for (let t = 0; t < index.length; t += 3) {
@@ -115,7 +115,7 @@ export async function export3dm({ scene, dots, filename }) {
         byPiece.get(k).push(index[t], index[t + 1], index[t + 2])
       }
       for (const [k, tri] of byPiece) {
-        add(placed(o.geometry, o.matrixWorld, tri), lname, names[k] ?? 'path', new THREE.Color(colour))
+        add(placed(o.geometry, o.matrixWorld, tri), lname, names[k] ?? 'path', new THREE.Color(colours?.[k] ?? colour))
         count++
       }
       continue
