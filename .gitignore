@@ -10,3 +10,4 @@ dist
 *.rhl
 *.bak
 *.3dmbak
+scripts/terrain-tiles/

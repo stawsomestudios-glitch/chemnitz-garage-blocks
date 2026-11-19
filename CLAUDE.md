@@ -33,3 +33,5 @@ Magic wand: `Wand` in `src/Scene.jsx` (click points on the ground, drag, Ctrl-cl
 Saved views: `plan.views` ({ id, name, pos, target }); the ★ Views menu in `src/App.jsx`, `cameraNow()` in `ViewApi` (`src/Elements.jsx`), and the glide back in `Camera` (`src/Scene.jsx`, view name `saved`). Keys 1–9 jump to the first nine.
 
 Materials: `src/materials.js` (painted, light/dark wood, concrete, corten, steel, rubber, terrazzo; patterns drawn on a canvas, tinted by the colour). A ribbon, a drawn ribbon, a piece or a module can carry `mat` and `col`; `lookOf(piece, ribbon)` decides. `src/Ribbon.jsx` sorts the triangles by look, one material each. `src/ribbon.js` now imports `materials.js`, so copying it to the catalog needs that file too.
+
+Topography: `public/data/terrain.json` (281 × 281 heights, 5 m apart, made by `node scripts/terrain.mjs` from AWS Terrain Tiles / EU-DEM). `src/terrain.js` gives `ground(east, north)` (0 in Flat mode); garages, buildings, the ribbons and elements are drawn at their height above the ground. Element `z` is the height above the ground. Mode in `plan.map.topo` (flat / real / x2).

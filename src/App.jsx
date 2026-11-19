@@ -4,6 +4,7 @@ import { GARAGES, BY_ID, ROW_IDS, connected, label } from './garages.js'
 import { TITLES, TITLE } from './titles.js'
 import { ELEMENT_GROUPS, KINDS, alignRot, dims, placeByGrip, snapPoint } from './elements.js'
 import { MAP_STYLES, MAP_STYLE_IDS } from './mapStyles.js'
+import { TOPO_MODES, setTerrain, setTopo } from './terrain.js'
 import ColourField, { parseColour } from './ColourField.jsx'
 import { colourOf } from './Elements.jsx'
 import { MATERIALS, MATERIAL_IDS, lookOf, swatchOf } from './materials.js'
@@ -12,7 +13,7 @@ import { COBALT, DEFAULT_RIBBON, RIBBON_GROUPS, RIBBON_KINDS, STREETS, VERSION, 
 const BASE = import.meta.env.BASE_URL
 const KEY = 'chemnitz-garage-blocks-v1'
 const ALL = GARAGES.map((g) => g.id)
-const DEFAULT_MAP = { style: 'current', colours: {} }
+const DEFAULT_MAP = { style: 'current', colours: {}, topo: 'real' }
 const EMPTY = { title: {}, block: {}, items: [], ribbon: DEFAULT_RIBBON, map: DEFAULT_MAP, glabel: {}, drawn: [], heading: { title: '', sub: '' }, views: [] }
 // the map layers you can recolour, in the order the Map section lists them
 const MAP_LAYERS = [
@@ -32,7 +33,9 @@ function cleanMap(m) {
     }
     if (Object.keys(own).length) colours[id] = own
   }
-  return { style, colours }
+  // the ground: flat, real, or real twice as steep
+  const topo = TOPO_MODES.some(([k]) => k === m?.topo) ? m.topo : 'real'
+  return { style, colours, topo }
 }
 const newId = () => 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 
@@ -221,6 +224,7 @@ function SizeBoxes({ id, vals, min, heightOk, custom, onSet, onReset }) {
 
 export default function App() {
   const [site, setSite] = useState(null)
+  const [terrainReady, setTerrainReady] = useState(false)
   const [error, setError] = useState(null)
   const [plan, setPlan, undo, redo, undos, redos] = useHistory(loadSaved)
   const [picked, setPicked] = useState(() => new Set())
@@ -258,6 +262,9 @@ export default function App() {
   // the map as it looks now: the style's colours, with any you changed yourself on top
   const look = useMemo(() => ({ ...MAP_STYLES[map.style], ...(map.colours[map.style] ?? {}) }), [map])
   const own = map.colours[map.style] ?? {}
+  const topo = terrainReady ? (map.topo ?? 'real') : 'flat'
+  setTopo(topo) // every part of the model reads the ground from here while drawing
+  const setMapTopo = (t) => setPlan((p) => ({ ...p, map: { ...(p.map ?? DEFAULT_MAP), topo: t } }))
   const setMapStyle = (style) => setPlan((p) => ({ ...p, map: { ...(p.map ?? DEFAULT_MAP), style } }))
   // a colour picker sends many changes while you drag it; they count as one step for undo
   const setMapColour = (k, c) =>
@@ -296,6 +303,15 @@ export default function App() {
       })
       .then(setSite)
       .catch((e) => setError(e.message))
+    // the real ground heights; without them the model stays flat
+    fetch(`${BASE}data/terrain.json`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return
+        setTerrain(d)
+        setTerrainReady(true)
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -849,7 +865,7 @@ export default function App() {
           }} view={view}
           items={items} onSelectItem={pick} onMoveItem={moveItem} onDropKind={addItem} snap={snap} api={api}
           connect={connect} onGrip={onGrip} onTarget={onTarget}
-          ribbon={ribbon} chosen={chosenList} onPickPiece={pickPiece} look={look}
+          ribbon={ribbon} chosen={chosenList} onPickPiece={pickPiece} look={look} topo={topo}
           drawn={drawn} active={curId} wand={wand} onWand={setWand} show={show} glabel={glabel} onEditLabel={editLabel}
         />
         {wand && (
@@ -1497,6 +1513,19 @@ export default function App() {
               ))}
             </div>
             <p className="muted small">{MAP_STYLES[map.style].note}</p>
+            <div className="snaprow">
+              <span>Ground</span>
+              <div className="seg-group small-seg" role="group" aria-label="Ground">
+                {TOPO_MODES.map(([k, l]) => (
+                  <button key={k} disabled={!terrainReady && k !== 'flat'} className={topo === k ? 'on' : ''} onClick={() => setMapTopo(k)}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <p className="muted small">
+              {terrainReady
+                ? 'The real topography of Helbersdorf: about 300–360 m above sea level, the garage site at 334.5 m, sloping about 6 m from west to east. Garages, buildings, the ribbon and elements sit on the ground; ×2 makes the slope twice as steep to read it better.'
+                : 'Loading the ground heights…'}
+            </p>
             <h3 className="sub">Colours of {MAP_STYLES[map.style].name}</h3>
             <p className="muted small">Click a swatch for the colour picker, type a code (#0047AB or true colour 0,71,171), open the palette, or pick a colour from the screen. Each style keeps its own changes.</p>
             {MAP_LAYERS.map(([k, label]) => (
@@ -1552,7 +1581,7 @@ export default function App() {
             <p className="muted small">Keys: Ctrl+Z undo · Ctrl+Y redo · L lock · U unlock · Esc deselect</p>
           </section>
         </div>
-        <footer>Map data © OpenStreetMap contributors (ODbL).</footer>
+        <footer>Map data © OpenStreetMap contributors (ODbL). Heights: EU-DEM / SRTM via AWS Terrain Tiles.</footer>
       </aside>
     </div>
   )

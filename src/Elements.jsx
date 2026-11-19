@@ -5,6 +5,7 @@ import { GARAGE_POINTS, KINDS, carColour, carParts, dims, localAnchors, magnet, 
 import { TITLE } from './titles.js'
 import { COBALT, RIBBON_KINDS, buildModule } from './ribbon.js'
 import { lookOf, makeMaterial } from './materials.js'
+import { ground } from './terrain.js'
 
 // A single blue module: one straight piece of the ribbon.
 function Module({ it, picked }) {
@@ -36,7 +37,13 @@ export function landing(scene, raycaster, skip) {
     if (o.userData.stack && o.visible && (!skip || o.userData.item !== skip)) targets.push(o)
   })
   const hit = raycaster.intersectObjects(targets, false).find((h) => h.face && up.copy(h.face.normal).transformDirection(h.object.matrixWorld).y > 0.7)
-  if (hit) return [hit.point.x, -hit.point.z, Math.round(hit.point.y * 100) / 100]
+  if (hit) {
+    // the height above the ground there (on the ground itself: 0)
+    const x = hit.point.x
+    const y = -hit.point.z
+    const z = Math.round((hit.point.y - ground(x, y)) * 100) / 100
+    return [x, y, Math.abs(z) < 0.12 ? 0 : z]
+  }
   const p = new THREE.Vector3()
   return raycaster.ray.intersectPlane(GROUND, p) ? [p.x, -p.z, 0] : null
 }
@@ -81,7 +88,7 @@ export function CarGarage({ g, s, colour, sel, onPick, connecting }) {
   return (
     <group
       userData={{ layer: 'Garages - car garage' }}
-      position={[s.x, 0, -s.y]}
+      position={[s.x, ground(s.x, s.y), -s.y]}
       rotation={[0, Math.atan2(g.n[0], -g.n[1]), 0]}
       onClick={(e) => {
         if (connecting) return // let the click reach the connect dots
@@ -115,7 +122,7 @@ export function Elements({ items, picked, onSelect, onMove, snap, connecting }) 
       <group
         key={it.id}
         userData={{ layer: it.kind === 'rmod' ? 'Ribbon - single modules' : `Elements - ${KINDS[it.kind].name}` }}
-        position={[it.x, it.z, -it.y]}
+        position={[it.x, it.z + ground(it.x, it.y), -it.y]}
         rotation={[0, (it.rot * PI) / 180, 0]}
         onClick={(e) => !connecting && e.stopPropagation()}
         onPointerDown={(e) => {
@@ -180,7 +187,7 @@ function Dots({ points, color, size, onTop, onPick }) {
   useLayoutEffect(() => {
     const m = ref.current
     points.forEach((p, i) => {
-      dotDummy.position.set(p[0], p[2], -p[1])
+      dotDummy.position.set(p[0], p[2] + ground(p[0], p[1]), -p[1])
       dotDummy.scale.setScalar(size)
       dotDummy.updateMatrix()
       m.setMatrixAt(i, dotDummy.matrix)

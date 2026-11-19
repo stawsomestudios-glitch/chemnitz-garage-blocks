@@ -582,7 +582,8 @@ function soften(pts, r = 0.07) {
 }
 
 // Builds the band as one mesh. Also returns which piece each vertex belongs to (for clicking) and label points.
-export function buildRibbon(ribbon, route = ROUTE) {
+// `ground` (optional): the height of the ground at (east, north); the band follows it.
+export function buildRibbon(ribbon, route = ROUTE, ground) {
   const curve = routeCurve(route)
   const total = curve.getLength()
   const parts = layout(ribbon.pieces, total)
@@ -646,7 +647,7 @@ export function buildRibbon(ribbon, route = ROUTE) {
     const pl = parts[k].s1 - parts[k].s0
     const sl = parts[k].flip ? parts[k].s1 - s : s - parts[k].s0
     const g = kind.slot ? Math.min(w - 0.3, Math.max(0, kind.slot(sl, pl, h, w, parts[k].h ?? kind.height))) : 0
-    return { P: P.setY(h), side, nrm, w, g, k, a: arc[i] }
+    return { P: P.setY(h + (ground ? ground(P.x, -P.z) : 0)), side, nrm, w, g, k, a: arc[i] }
   })
 
   const pos = []
@@ -719,7 +720,7 @@ export function buildRibbon(ribbon, route = ROUTE) {
       const P = curve.getPointAt(Math.min(1, mid / total))
       let hi = 0
       for (const [s, h, k] of prof) if (parts[k] === p && h > hi) hi = h
-      return { i: p.i, kind: p.kind, p: [P.x, hi + 1.2, P.z] }
+      return { i: p.i, kind: p.kind, p: [P.x, hi + 1.2 + (ground ? ground(P.x, -P.z) : 0), P.z] }
     })
 
   return { geo, piece: new Int32Array(piece), total, parts, tags }

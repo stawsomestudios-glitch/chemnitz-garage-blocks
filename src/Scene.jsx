@@ -8,6 +8,7 @@ import { TITLE } from './titles.js'
 import { CarGarage, ConnectDots, Elements, ViewApi } from './Elements.jsx'
 import { KINDS, dims } from './elements.js'
 import Ribbon from './Ribbon.jsx'
+import { ground, seatBuilding, terrainMesh, topoOn } from './terrain.js'
 import { COBALT, RIBBON_KINDS, buildRibbon, passages } from './ribbon.js'
 
 // is this label on an added element (not a garage)?
@@ -63,10 +64,10 @@ function ribbon(lines, width, y) {
 }
 
 // Streets, paths, green and the surrounding buildings. The mapped garages of the site are left out: our boxes replace them.
-function Context({ site, look }) {
+function Context({ site, look, topo }) {
   const geo = useMemo(() => {
     const build = (test) => {
-      const list = site.buildings.filter(test).map((b) => prism(b.p, b.h))
+      const list = site.buildings.filter(test).map((b) => seatBuilding(prism(b.p, b.h), b.p, b.h))
       return list.length ? mergeGeometries(list) : null
     }
     const area = (kind, y) => {
@@ -86,7 +87,13 @@ function Context({ site, look }) {
       path: ribbon(by('path'), 1.6, -0.07),
       tram: ribbon(by('tram'), 1.6, -0.06),
     }
-  }, [site])
+  }, [site, topo]) // eslint-disable-line react-hooks/exhaustive-deps
+  // the real ground, with the map painted on it (redrawn when the colours change)
+  const land = useMemo(() => (topoOn() ? terrainMesh(site, look) : null), [site, look, topo]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => {
+    land?.geo.dispose()
+    land?.tex.dispose()
+  }, [land])
   // flat styles (Nolli) show the map as a printed plan: pure colours, no light and shade
   const m = (g, color, double, layer) =>
     g && (
@@ -100,6 +107,12 @@ function Context({ site, look }) {
     )
   return (
     <group>
+      {land && (
+        <mesh geometry={land.geo} receiveShadow userData={{ stack: true, layer: 'Context - terrain' }}>
+          {look.flat ? <meshBasicMaterial map={land.tex} toneMapped={false} /> : <meshStandardMaterial map={land.tex} roughness={0.95} />}
+        </mesh>
+      )}
+      {!land && <>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.2, 0]} receiveShadow userData={{ layer: 'Context - ground' }}>
         <planeGeometry args={[1400, 1400]} />
         {look.flat ? <meshBasicMaterial color={look.ground} toneMapped={false} /> : <meshStandardMaterial color={look.ground} />}
@@ -111,6 +124,7 @@ function Context({ site, look }) {
       {m(geo.lane, look.lane, true, 'lanes')}
       {m(geo.path, look.path, true, 'footpaths')}
       {m(geo.tram, look.tram, true, 'tram')}
+      </>}
       {m(geo.home, look.home, 'cast', 'homes')}
       {m(geo.other, look.other, 'cast', 'other buildings')}
       {m(geo.garage, look.garage, 'cast', 'other garages')}
@@ -138,7 +152,7 @@ function shapes(block) {
 
 // Solid garages, their doors, and see-through garages (titles marked `clear`) are three separate sets.
 // A garage the ribbon runs through: cleared inside, so only its roof and the outer walls the ribbon doesn't pass stay.
-function Passages({ pass, look }) {
+function Passages({ pass, look, topo }) {
   const parts = useMemo(() => {
     const out = []
     const t = 0.15
@@ -158,7 +172,7 @@ function Passages({ pass, look }) {
     return out
   }, [pass])
   return parts.map((q, i) => (
-    <mesh key={i} position={[q.p[0], q.y, -q.p[1]]} rotation={[0, q.angle, 0]} scale={q.size} geometry={box} castShadow={!q.roof} receiveShadow userData={{ stack: true, layer: q.roof ? 'Garages - cleared, roofs' : 'Garages - cleared for the ribbon', name: q.id }} renderOrder={q.roof ? 2 : 0}>
+    <mesh key={i} position={[q.p[0], q.y + ground(BY_ID[q.id].x, BY_ID[q.id].y), -q.p[1]]} rotation={[0, q.angle, 0]} scale={q.size} geometry={box} castShadow={!q.roof} receiveShadow userData={{ stack: true, layer: q.roof ? 'Garages - cleared, roofs' : 'Garages - cleared for the ribbon', name: q.id }} renderOrder={q.roof ? 2 : 0}>
       {q.roof ? (
         <meshStandardMaterial color="#cfe0f0" transparent opacity={0.35} depthWrite={false} roughness={0.1} />
       ) : (
@@ -168,7 +182,7 @@ function Passages({ pass, look }) {
   ))
 }
 
-function Garages({ title, block, picked, onPick, connecting, pass, look }) {
+function Garages({ title, block, picked, onPick, connecting, pass, look, topo }) {
   const body = useRef()
   const door = useRef()
   const glass = useRef()
@@ -204,7 +218,7 @@ function Garages({ title, block, picked, onPick, connecting, pass, look }) {
     }
     const shape = (g, s) => {
       colour(g)
-      dummy.position.set(s.x, MODULE.height / 2, -s.y)
+      dummy.position.set(s.x, MODULE.height / 2 + ground(s.x, s.y), -s.y)
       dummy.rotation.set(0, g.angle, 0)
       dummy.scale.set(s.w, MODULE.height, s.d)
     }
@@ -215,11 +229,11 @@ function Garages({ title, block, picked, onPick, connecting, pass, look }) {
     put(door.current, lists.solid, (g) => {
       colour(g)
       tint.multiplyScalar(0.72)
-      dummy.position.set(g.x + g.n[0] * f, 1.2, -(g.y + g.n[1] * f))
+      dummy.position.set(g.x + g.n[0] * f, 1.2 + ground(g.x, g.y), -(g.y + g.n[1] * f))
       dummy.rotation.set(0, g.angle, 0)
       dummy.scale.set(2.5, 2.4, 0.06)
     })
-  }, [placed, title, picked, lists, look])
+  }, [placed, title, picked, lists, look, topo])
   const click = (list) => (e) => {
     if (connecting) return // let the click reach the connect dots
     e.stopPropagation()
@@ -323,7 +337,7 @@ function Camera({ view, pieces }) {
 // One label per locked block, or per single garage, per ribbon piece and per labelled element. Selected ones first, so they are never hidden.
 // show = { garages: 'titles' | 'numbers' | 'both' | 'off', ribbon: 'names' | 'numbers' | 'both' | 'off', elements: true | false }
 // Your own texts: glabel (garage id -> text), piece.label on ribbon pieces, it.label on elements. `edit` says what a double-click changes.
-function useItems({ title, block, picked, show, glabel, items, tags, chosen, active, pass }) {
+function useItems({ title, block, picked, show, glabel, items, tags, chosen, active, pass, topo }) {
   return useMemo(() => {
     const list = []
     if (show.garages !== 'off') {
@@ -349,7 +363,7 @@ function useItems({ title, block, picked, show, glabel, items, tags, chosen, act
         list.push({
           key: `${k}|${text}`,
           first: ids[0],
-          p: [p[0], MODULE.height + 1.1, -p[1]],
+          p: [p[0], MODULE.height + 1.1 + ground(p[0], p[1]), -p[1]],
           text,
           color: t ? TITLE[t].color : null,
           empty: (!t && !own) || mode === 'numbers',
@@ -367,7 +381,7 @@ function useItems({ title, block, picked, show, glabel, items, tags, chosen, act
         if (!named) continue
         const sel = picked.has(it.id)
         const color = it.title && TITLE[it.title] ? TITLE[it.title].color : it.kind === 'rmod' ? COBALT : '#b9b4a9'
-        list.push({ key: `${it.id}|${named}`, first: it.id, p: [it.x, it.z + dims(it).h + 1.1, -it.y], text: named, color, block: true, sel, rank: sel ? 0 : 2, order: 999, edit: { type: 'e', id: it.id, text: it.label ?? '', usual: it.title && TITLE[it.title] ? TITLE[it.title].name : KINDS[it.kind]?.name ?? '' } })
+        list.push({ key: `${it.id}|${named}`, first: it.id, p: [it.x, it.z + dims(it).h + 1.1 + ground(it.x, it.y), -it.y], text: named, color, block: true, sel, rank: sel ? 0 : 2, order: 999, edit: { type: 'e', id: it.id, text: it.label ?? '', usual: it.title && TITLE[it.title] ? TITLE[it.title].name : KINDS[it.kind]?.name ?? '' } })
       }
     // the ribbons' pieces (flat path pieces stay unlabelled unless picked or named by you)
     if (show.ribbon !== 'off')
@@ -382,7 +396,7 @@ function useItems({ title, block, picked, show, glabel, items, tags, chosen, act
       }
     const order = (x) => x.order ?? BY_ID[x.first].i
     return list.sort((a, b) => a.rank - b.rank || order(a) - order(b))
-  }, [title, block, picked, show, glabel, items, tags, chosen, active, pass])
+  }, [title, block, picked, show, glabel, items, tags, chosen, active, pass, topo])
 }
 
 // The magic wand: click the ground to add a point (Ctrl-click puts it into the nearest part of the line),
@@ -399,13 +413,23 @@ function Wand({ wand, onWand }) {
   const hit = useMemo(() => new THREE.Vector3(), [])
   const drag = useRef(null)
   const pts = wand.pts
-  const preview = useMemo(() => (pts.length >= 2 ? buildRibbon({ width: wand.width, pieces: [] }, pts).geo : null), [pts, wand.width])
+  const preview = useMemo(() => (pts.length >= 2 ? buildRibbon({ width: wand.width, pieces: [] }, pts, ground).geo : null), [pts, wand.width])
   useEffect(() => () => preview?.dispose(), [preview])
-  const ground = (e) => (e.ray.intersectPlane(plane, hit) ? [Math.round(hit.x * 100) / 100, Math.round(-hit.z * 100) / 100] : null)
+  // where the pointer meets the ground: on a slope, found in a few steps
+  const onGround = (e) => {
+    plane.constant = 0
+    let p = null
+    for (let k = 0; k < 4; k++) {
+      if (!e.ray.intersectPlane(plane, hit)) return p
+      p = [Math.round(hit.x * 100) / 100, Math.round(-hit.z * 100) / 100]
+      plane.constant = -ground(p[0], p[1])
+    }
+    return p
+  }
   const add = (e) => {
     if (e.delta > 6) return
     e.stopPropagation()
-    const p = ground(e)
+    const p = onGround(e)
     if (!p) return
     onWand((w) => {
       if (!(e.ctrlKey || e.metaKey || e.altKey) || w.pts.length < 2) return { ...w, pts: [...w.pts, p] }
@@ -441,12 +465,12 @@ function Wand({ wand, onWand }) {
           <meshStandardMaterial color={COBALT} transparent opacity={0.55} depthWrite={false} side={THREE.DoubleSide} />
         </mesh>
       )}
-      {pts.length >= 2 && <Line points={pts.map(([x, y]) => [x, 0.25, -y])} color="#ff7a1a" lineWidth={2} dashed dashSize={0.8} gapSize={0.5} raycast={() => null} />}
+      {pts.length >= 2 && <Line points={pts.map(([x, y]) => [x, 0.25 + ground(x, y), -y])} color="#ff7a1a" lineWidth={2} dashed dashSize={0.8} gapSize={0.5} raycast={() => null} />}
       {(dots.current.length = pts.length, pts.map(([x, y], i) => (
         <mesh
           key={i}
           geometry={WAND_DOT}
-          position={[x, 0.3, -y]}
+          position={[x, 0.3 + ground(x, y), -y]}
           ref={(m) => (dots.current[i] = m)}
           renderOrder={5}
           userData={{ noExport: true }}
@@ -465,7 +489,7 @@ function Wand({ wand, onWand }) {
           onPointerMove={(e) => {
             if (drag.current !== i) return
             e.stopPropagation()
-            const p = ground(e)
+            const p = onGround(e)
             if (p) onWand((w) => ({ ...w, pts: w.pts.map((q, k) => (k === i ? p : q)) }), true)
           }}
           onPointerUp={end}
@@ -480,17 +504,17 @@ function Wand({ wand, onWand }) {
   )
 }
 
-export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget, ribbon, chosen, onPickPiece, look, drawn = [], active = 'main', wand, onWand, show, glabel = {}, onEditLabel }) {
-  const built = useMemo(() => (ribbon.on ? buildRibbon(ribbon) : null), [ribbon])
+export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget, ribbon, chosen, onPickPiece, look, drawn = [], active = 'main', wand, onWand, show, glabel = {}, onEditLabel, topo = 'flat' }) {
+  const built = useMemo(() => (ribbon.on ? buildRibbon(ribbon, undefined, ground) : null), [ribbon, topo]) // eslint-disable-line react-hooks/exhaustive-deps
   // the ribbons you drew with the magic wand, each along its own line
-  const builtDrawn = useMemo(() => drawn.map((d) => ({ d, built: buildRibbon(d, d.route) })), [drawn])
+  const builtDrawn = useMemo(() => drawn.map((d) => ({ d, built: buildRibbon(d, d.route, ground) })), [drawn, topo]) // eslint-disable-line react-hooks/exhaustive-deps
   const pass = ribbon.on ? passages() : null
   const allTags = useMemo(() => {
     const out = (built?.tags ?? []).map((t) => ({ ...t, rid: 'main', label: ribbon.pieces[t.i]?.label }))
     builtDrawn.forEach(({ d, built: b }, n) => b.tags.forEach((t) => out.push({ ...t, rid: d.id, label: d.pieces[t.i]?.label, prefix: `D${n + 1}.` })))
     return out
   }, [built, builtDrawn, ribbon.pieces])
-  const tags = useItems({ title, block, picked, show, glabel, items, tags: allTags, chosen, active, pass })
+  const tags = useItems({ title, block, picked, show, glabel, items, tags: allTags, chosen, active, pass, topo })
   const passive = !!connect || !!wand
   const refs = useRef([])
   const down = useRef([0, 0])
@@ -534,9 +558,9 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
           shadow-bias={-0.0006}
           shadow-normalBias={0.05}
         />
-        <Context site={site} look={look} />
-        <Garages title={title} block={block} picked={picked} onPick={onPick} connecting={passive} pass={pass} look={look} />
-        {pass && <Passages pass={pass} look={look} />}
+        <Context site={site} look={look} topo={topo} />
+        <Garages title={title} block={block} picked={picked} onPick={onPick} connecting={passive} pass={pass} look={look} topo={topo} />
+        {pass && <Passages pass={pass} look={look} topo={topo} />}
         {built && <Ribbon built={built} rib={ribbon} chosen={active === 'main' ? chosen : []} onPickPiece={(i, add) => onPickPiece(i, add, 'main')} connecting={passive} />}
         {builtDrawn.map(({ d, built: b }) => (
           <Ribbon key={d.id} built={b} rib={d} layer={`Ribbon - ${d.name}`} chosen={active === d.id ? chosen : []} onPickPiece={(i, add) => onPickPiece(i, add, d.id)} connecting={passive} />
