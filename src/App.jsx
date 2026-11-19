@@ -483,6 +483,39 @@ export default function App() {
     download('chemnitz-garages.csv', rows.map((r) => r.map((c) => `"${c}"`).join(',')).join('\n'), 'text/csv')
   }
   // The whole 3D model, as it is on screen, as a Rhino 8 file. Titles become text dots above the garages.
+  // A picture of the 3D view, drawn again at a higher resolution. The selection highlight is hidden while it is taken.
+  const [pic, setPic] = useState({ format: 'png', scale: 2, labels: true })
+  const [shooting, setShooting] = useState(false)
+  const takePicture = async () => {
+    const v = api.current
+    if (!v?.capture || shooting) return
+    setShooting(true)
+    const keep = [picked, chosenList]
+    setPicked(new Set())
+    setChosenList([])
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))))
+    try {
+      const tags = pic.labels ? [...document.querySelectorAll('.labels .tag')].filter((el) => el.style.display !== 'none') : []
+      const c = v.capture({ scale: pic.scale, labels: tags })
+      const jpg = pic.format === 'jpg'
+      const blob = await new Promise((r) => c.toBlob(r, jpg ? 'image/jpeg' : 'image/png', 0.95))
+      if (!blob) throw new Error('no image')
+      const d = new Date()
+      const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `chemnitz-garage-blocks-${stamp}.${pic.format}`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+      setNote(`Picture saved: ${c.width} × ${c.height} pixels, ${jpg ? 'JPG' : 'PNG'}.`)
+    } catch (e) {
+      console.error(e)
+      setNote('The picture could not be made. Try a smaller size.')
+    }
+    setPicked(keep[0])
+    setChosenList(keep[1])
+    setShooting(false)
+  }
   const [saving, setSaving] = useState(false)
   const exportRhino = async () => {
     const scene = api.current?.scene
@@ -567,6 +600,11 @@ export default function App() {
             <button onClick={() => setView({ name: 'home', t: Date.now() })}>3D</button>
             <button onClick={() => setView({ name: 'plan', t: Date.now() })}>Plan</button>
             <button onClick={() => setView({ name: 'ribbon', t: Date.now() })}>Ribbon</button>
+          </div>
+          <div className="seg-group" role="group" aria-label="Picture">
+            <button disabled={shooting} onClick={takePicture} title={`Save a picture of this view (${pic.format.toUpperCase()}, ${pic.scale === 1 ? 'screen size' : pic.scale + '× the screen'}); change the settings under Picture in the panel`}>
+              {shooting ? 'Saving…' : '📷 Picture'}
+            </button>
           </div>
           <div className="seg-group" role="group" aria-label="Labels">
             {[['titles', 'Titles'], ['numbers', 'Numbers'], ['off', 'Off']].map(([k, l]) => (
@@ -915,6 +953,37 @@ export default function App() {
                 <tr className="zero"><td><span className="dot empty" />No title yet</td><td>{115 - assigned}</td><td></td></tr>
               </tbody>
             </table>
+          </section>
+
+          <section>
+            <h2>Picture</h2>
+            <p className="muted">Save a high-quality picture of the 3D view exactly as you see it. Turn and zoom the view first; the selection highlight is left out.</p>
+            <div className="snaprow">
+              <span>Format</span>
+              <div className="seg-group small-seg" role="group" aria-label="Picture format">
+                {[['png', 'PNG'], ['jpg', 'JPG']].map(([k, l]) => (
+                  <button key={k} className={pic.format === k ? 'on' : ''} onClick={() => setPic((p) => ({ ...p, format: k }))}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div className="snaprow">
+              <span>Size</span>
+              <div className="seg-group small-seg" role="group" aria-label="Picture size">
+                {[[1, 'Screen'], [2, '2×'], [3, '3×'], [4, '4×']].map(([k, l]) => (
+                  <button key={k} className={pic.scale === k ? 'on' : ''} onClick={() => setPic((p) => ({ ...p, scale: k }))}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <label className="check">
+              <input type="checkbox" checked={pic.labels && labels !== 'off'} disabled={labels === 'off'} onChange={(e) => setPic((p) => ({ ...p, labels: e.target.checked }))} />
+              {labels === 'off' ? 'Labels are off (turn them on at the top to include them)' : 'Include the labels'}
+            </label>
+            <div className="actions">
+              <button className="primary" disabled={shooting} onClick={takePicture}>
+                {shooting ? 'Making the picture…' : `Save picture (${pic.format.toUpperCase()}${api.current?.pictureSize ? `, ${api.current.pictureSize(pic.scale).join(' × ')} px` : ''})`}
+              </button>
+            </div>
+            <p className="muted small">PNG keeps every pixel sharp (best for drawings and printing); JPG makes a smaller file (best for sending).</p>
           </section>
 
           <section>

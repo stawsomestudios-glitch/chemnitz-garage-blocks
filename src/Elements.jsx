@@ -248,6 +248,67 @@ export function ViewApi({ api }) {
     centre() {
       return controls ? [controls.target.x, -controls.target.z, 0] : [0, 0, 0]
     },
+    // the largest picture the graphics card can draw from this view, as a multiple of the screen size
+    maxScale() {
+      const s = gl.getSize(new THREE.Vector2())
+      const most = Math.min(gl.capabilities.maxTextureSize, 8192)
+      return Math.max(1, Math.floor((most / Math.max(s.x, s.y)) * 10) / 10)
+    },
+    pictureSize(scale) {
+      const s = gl.getSize(new THREE.Vector2())
+      const k = Math.min(scale, this.maxScale())
+      return [Math.round(s.x * k), Math.round(s.y * k)]
+    },
+    // A picture of the view as it is now, drawn again at `scale` times the screen size; the labels drawn on top if asked.
+    capture({ scale = 2, labels = [] } = {}) {
+      const size = gl.getSize(new THREE.Vector2())
+      const ratio = gl.getPixelRatio()
+      const k = Math.min(scale, this.maxScale())
+      gl.setPixelRatio(k)
+      gl.setSize(size.x, size.y, false)
+      gl.render(scene, camera)
+      const out = document.createElement('canvas')
+      out.width = gl.domElement.width
+      out.height = gl.domElement.height
+      const ctx = out.getContext('2d')
+      ctx.drawImage(gl.domElement, 0, 0)
+      gl.setPixelRatio(ratio)
+      gl.setSize(size.x, size.y, false)
+      gl.render(scene, camera)
+      // the labels are part of the page, not the 3D view, so they are copied in one by one at the same places
+      const box = gl.domElement.getBoundingClientRect()
+      const f = out.width / box.width
+      for (const el of labels) {
+        const r = el.getBoundingClientRect()
+        if (!r.width || r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) continue
+        const cs = getComputedStyle(el)
+        const x = (r.left - box.left) * f
+        const y = (r.top - box.top) * f
+        const w = r.width * f
+        const h = r.height * f
+        ctx.save()
+        ctx.globalAlpha = +cs.opacity || 1
+        ctx.shadowColor = 'rgba(0,0,0,0.18)'
+        ctx.shadowBlur = 2 * f
+        ctx.shadowOffsetY = f
+        ctx.fillStyle = cs.backgroundColor
+        ctx.beginPath()
+        ctx.roundRect(x, y, w, h, parseFloat(cs.borderTopLeftRadius) * f || 0)
+        ctx.fill()
+        ctx.shadowColor = 'transparent'
+        ctx.clip()
+        const bl = parseFloat(cs.borderLeftWidth) * f
+        ctx.fillStyle = cs.borderLeftColor
+        ctx.fillRect(x, y, bl, h)
+        ctx.fillStyle = cs.color
+        ctx.font = `${cs.fontWeight} ${parseFloat(cs.fontSize) * f}px ${cs.fontFamily}`
+        ctx.textBaseline = 'middle'
+        if (parseFloat(cs.letterSpacing)) ctx.letterSpacing = `${parseFloat(cs.letterSpacing) * f}px`
+        ctx.fillText(el.textContent, x + bl + parseFloat(cs.paddingLeft) * f, y + h / 2 + 0.5 * f)
+        ctx.restore()
+      }
+      return out
+    },
   }
   return null
 }
