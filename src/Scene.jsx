@@ -472,7 +472,7 @@ function Wand({ wand, onWand }) {
   )
 }
 
-export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget, ribbon, chosen, onPickPiece, look, drawn = [], active = 'main', wand, onWand, show, glabel = {}, onEditLabel, topo = 'flat', ortho = false, section = null }) {
+export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget, ribbon, chosen, onPickPiece, look, drawn = [], active = 'main', wand, onWand, show, glabel = {}, onEditLabel, topo = 'flat', ortho = false, section = null, locked, layerName }) {
   const built = useMemo(() => (ribbon.on ? buildRibbon(ribbon, undefined, ground) : null), [ribbon, topo]) // eslint-disable-line react-hooks/exhaustive-deps
   // the ribbons you drew with the magic wand, each along its own line
   const builtDrawn = useMemo(() => drawn.map((d) => ({ d, built: buildRibbon(d, d.route, ground) })), [drawn, topo]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -534,7 +534,7 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
           <Ribbon key={d.id} built={b} rib={d} layer={`Ribbon - ${d.name}`} chosen={active === d.id ? chosen : []} onPickPiece={(i, add) => onPickPiece(i, add, d.id)} connecting={passive} />
         ))}
         {wand && <Wand wand={wand} onWand={onWand} />}
-        <Elements items={items} picked={picked} onSelect={onSelectItem} onMove={onMoveItem} snap={snap} connecting={passive} />
+        <Elements items={items} picked={picked} onSelect={onSelectItem} onMove={onMoveItem} snap={snap} connecting={passive} locked={locked} layerName={layerName} />
         <ConnectDots connect={connect} items={items} onGrip={onGrip} onTarget={onTarget} />
         <ViewApi api={api} />
         {ortho ? (

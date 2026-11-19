@@ -15,7 +15,9 @@ const BASE = import.meta.env.BASE_URL
 const KEY = 'chemnitz-garage-blocks-v1'
 const ALL = GARAGES.map((g) => g.id)
 const DEFAULT_MAP = { style: 'current', colours: {}, topo: 'real' }
-const EMPTY = { title: {}, block: {}, items: [], ribbon: DEFAULT_RIBBON, map: DEFAULT_MAP, glabel: {}, drawn: [], heading: { title: '', sub: '' }, views: [] }
+// Element layers: { id, name, on (shown), locked }. An element carries `layer`; without one it is on the first layer.
+const DEFAULT_LAYERS = [{ id: 'l1', name: 'Layer 1', on: true, locked: false }]
+const EMPTY = { title: {}, block: {}, items: [], ribbon: DEFAULT_RIBBON, map: DEFAULT_MAP, glabel: {}, drawn: [], heading: { title: '', sub: '' }, views: [], layers: DEFAULT_LAYERS }
 // the map layers you can recolour, in the order the Map section lists them
 const MAP_LAYERS = [
   ['bg', 'Sky / background'], ['ground', 'Ground'], ['green', 'Green areas'], ['parking', 'Parking'], ['site', 'Garage yard'],
@@ -64,6 +66,7 @@ function clean(s) {
       for (const k of ['sw', 'sd', 'sh']) if (+it[k] > 0) out[k] = +it[k]
       if (it.col && parseColour(it.col)) out.col = parseColour(it.col)
       if (it.label) out.label = String(it.label).slice(0, 60)
+      if (it.layer) out.layer = String(it.layer).slice(0, 60)
       if (it.kind === 'rmod') {
         const rk = RIBBON_KINDS[it.rk] && !RIBBON_KINDS[it.rk].gap ? it.rk : 'bench'
         out.rk = rk
@@ -90,7 +93,14 @@ function clean(s) {
       ...(v.ortho ? { ortho: true, zoom: +v.zoom > 0 ? +v.zoom : 3 } : {}),
       ...(v.section && Number.isFinite(+v.section.angle) ? { section: { angle: +v.section.angle, offset: +v.section.offset || 0, flip: !!v.section.flip } } : {}),
     }))
-  return { title, block, items, ribbon: cleanRibbon(s.ribbon), map: cleanMap(s.map), glabel, drawn: cleanDrawn(s.drawn), heading, views }
+  return { title, block, items, ribbon: cleanRibbon(s.ribbon), map: cleanMap(s.map), glabel, drawn: cleanDrawn(s.drawn), heading, views, layers: cleanLayers(s.layers) }
+}
+function cleanLayers(list) {
+  const seen = new Set()
+  const out = (Array.isArray(list) ? list : [])
+    .filter((l) => l && l.id && !seen.has(String(l.id)) && seen.add(String(l.id)))
+    .map((l) => ({ id: String(l.id).slice(0, 60), name: String(l.name ?? 'Layer').slice(0, 40) || 'Layer', on: l.on !== false, locked: !!l.locked }))
+  return out.length ? out : DEFAULT_LAYERS
 }
 // The ribbons you drew with the magic wand: { id, name, route: [[east, north], …], width, pieces }
 function cleanDrawn(list) {
@@ -288,6 +298,65 @@ export default function App() {
   const file = useRef()
   const api = useRef(null)
   const { title, block, items, ribbon } = plan
+
+  // ----- layers of elements -----
+  const layers = plan.layers?.length ? plan.layers : DEFAULT_LAYERS
+  const layerById = Object.fromEntries(layers.map((l) => [l.id, l]))
+  const layerOf = (it) => (layerById[it.layer] ? it.layer : layers[0].id)
+  const [curLayer, setCurLayer] = useState(null)
+  const [layerMenu, setLayerMenu] = useState(false)
+  const current = layerById[curLayer] ?? layers[0] // new elements go on this layer
+  const shownItems = useMemo(() => items.filter((it) => layerById[layerOf(it)].on), [items, layers]) // eslint-disable-line react-hooks/exhaustive-deps
+  const lockedIds = useMemo(() => new Set(items.filter((it) => layerById[layerOf(it)].locked).map((it) => it.id)), [items, layers]) // eslint-disable-line react-hooks/exhaustive-deps
+  const layerCount = (id) => items.filter((it) => layerOf(it) === id).length
+  const setLayers = (fn) => setPlan((p) => ({ ...p, layers: fn(p.layers?.length ? p.layers : DEFAULT_LAYERS) }))
+  // the current layer is shown and unlocked again when you add something to it
+  const openLayer = (ls, id) => ls.map((l) => (l.id === id ? { ...l, on: true, locked: false } : l))
+  const noteOpened = () => (!current.on || current.locked) && setNote(`Layer "${current.name}" was ${!current.on ? 'hidden' : 'locked'}. It is shown and unlocked again, so you can see what you added.`)
+  const unpickLayer = (id) =>
+    setPicked((old) => {
+      const next = new Set(old)
+      for (const it of items) if (layerOf(it) === id) next.delete(it.id)
+      return next
+    })
+  const toggleLayer = (id, key) => {
+    const l = layerById[id]
+    if (key === 'on' ? l.on : !l.locked) unpickLayer(id) // what you hide or lock is no longer selected
+    setLayers((ls) => ls.map((x) => (x.id === id ? { ...x, [key]: !x[key] } : x)))
+  }
+  const addLayer = () => {
+    const id = 'l' + newId()
+    let n = layers.length + 1
+    while (layers.some((l) => l.name === 'Layer ' + n)) n++
+    setLayers((ls) => [...ls, { id, name: 'Layer ' + n, on: true, locked: false }])
+    setCurLayer(id)
+  }
+  const renameLayer = (id) => {
+    const t = prompt('Name of the layer', layerById[id].name)
+    if (t?.trim()) setLayers((ls) => ls.map((x) => (x.id === id ? { ...x, name: t.trim().slice(0, 40) } : x)))
+  }
+  const deleteLayer = (id) => {
+    if (layers.length < 2) return
+    const rest = layers.filter((l) => l.id !== id)
+    const n = layerCount(id)
+    if (n && !confirm(`Delete the layer "${layerById[id].name}"? Its ${n} element${n === 1 ? '' : 's'} move to "${rest[0].name}". (Undo brings it back.)`)) return
+    setPlan((p) => ({ ...p, layers: rest, items: p.items.map((it) => (layerOf(it) === id ? { ...it, layer: rest[0].id } : it)) }))
+    if (current.id === id) setCurLayer(rest[0].id)
+  }
+  const moveLayer = (id, by) =>
+    setLayers((ls) => {
+      const i = ls.findIndex((l) => l.id === id)
+      const j = i + by
+      if (j < 0 || j >= ls.length) return ls
+      const next = [...ls]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    })
+  const selectLayer = (id) => {
+    setChosen(null)
+    setPicked(new Set(items.filter((it) => layerOf(it) === id).map((it) => it.id)))
+  }
+  const setAllLayers = (patch) => setLayers((ls) => ls.map((l) => ({ ...l, ...patch })))
   const map = plan.map ?? DEFAULT_MAP
   // the map as it looks now: the style's colours, with any you changed yourself on top
   const look = useMemo(() => ({ ...MAP_STYLES[map.style], ...(map.colours[map.style] ?? {}) }), [map])
@@ -361,6 +430,7 @@ export default function App() {
   const withBlocks = (ids) => [...new Set(ids.flatMap(members))]
 
   const pick = (id, add) => {
+    if (lockedIds.has(id)) return
     setChosen(null)
     const m = members(id)
     setPicked((old) => {
@@ -400,12 +470,13 @@ export default function App() {
   // ----- added elements -----
   const addItem = (kind, [x, y, z]) => {
     const [sx, sy] = snap === 'grid' ? snapPoint(x, y) : [x, y]
-    let it = { id: newId(), kind, x: sx, y: sy, z, rot: alignRot(sx, sy) }
+    let it = { id: newId(), kind, x: sx, y: sy, z, rot: alignRot(sx, sy), layer: current.id }
     if (kind.startsWith('rmod:')) {
       const rk = kind.slice(5)
       it = { ...it, kind: 'rmod', rk, len: moduleLen(rk), bw: ribbon.width }
     }
-    setPlan((p) => ({ ...p, items: [...p.items, it] }))
+    setPlan((p) => ({ ...p, items: [...p.items, it], layers: openLayer(p.layers?.length ? p.layers : DEFAULT_LAYERS, current.id) }))
+    noteOpened()
     setPicked(new Set([it.id]))
   }
   const moveItem = (id, pos) => setPlan((p) => ({ ...p, items: p.items.map((it) => (it.id === id ? { ...it, ...pos } : it)) }), 'move:' + id)
@@ -538,12 +609,13 @@ export default function App() {
       const at = alongOn(curCurve, cur.pieces.slice(0, i).reduce((a, q) => a + q.len, 0) + p.len / 2)
       const L = lookOf(p, cur) // the module looks just like the piece did
       const look = { ...(L.mat !== 'painted' ? { mat: L.mat } : {}), ...(L.colour !== MATERIALS[L.mat].colour ? { col: L.colour } : {}) }
-      return { id: newId() + i, kind: 'rmod', rk: p.kind, len: p.len, bw: cur.width, x: at.x, y: at.y, z: 0, rot: at.rot, ...(p.flip ? { flip: true } : {}), ...cleanSize(p), ...look }
+      return { id: newId() + i, layer: current.id, kind: 'rmod', rk: p.kind, len: p.len, bw: cur.width, x: at.x, y: at.y, z: 0, rot: at.rot, ...(p.flip ? { flip: true } : {}), ...cleanSize(p), ...look }
     })
     const gaps = (r) => ({ ...r, pieces: r.pieces.map((q, k) => (out.includes(k) ? { kind: 'gap', len: q.len } : q)) })
     setPlan((pl) => ({
       ...pl,
       items: [...pl.items, ...mods],
+      layers: openLayer(pl.layers?.length ? pl.layers : DEFAULT_LAYERS, current.id),
       ...(curId === 'main' ? { ribbon: gaps(pl.ribbon) } : { drawn: pl.drawn.map((d) => (d.id === curId ? gaps(d) : d)) }),
     }))
     setChosen(null)
@@ -895,7 +967,7 @@ export default function App() {
             setPicked(new Set())
             setChosen(null)
           }} view={view}
-          items={items} onSelectItem={pick} onMoveItem={moveItem} onDropKind={addItem} snap={snap} api={api}
+          items={shownItems} locked={lockedIds} layerName={layers.length > 1 ? Object.fromEntries(items.map((it) => [it.id, layerById[layerOf(it)].name])) : null} onSelectItem={pick} onMoveItem={moveItem} onDropKind={addItem} snap={snap} api={api}
           connect={connect} onGrip={onGrip} onTarget={onTarget}
           ribbon={ribbon} chosen={chosenList} onPickPiece={pickPiece} look={look} topo={topo} ortho={ortho} section={section}
           drawn={drawn} active={curId} wand={wand} onWand={setWand} show={show} glabel={glabel} onEditLabel={editLabel}
@@ -1057,6 +1129,58 @@ export default function App() {
             </button>
           </div>
           <div className="pop-wrap">
+            <div className="seg-group" role="group" aria-label="Layers">
+              <button className={layerMenu ? 'on' : ''} onClick={() => setLayerMenu(!layerMenu)} aria-expanded={layerMenu} title="Put elements on layers, show, hide and lock them">
+                Layers{layers.some((l) => !l.on || l.locked) ? ' •' : ''} ▾
+              </button>
+            </div>
+            {layerMenu && (
+              <div
+                className="label-pop layer-pop"
+                role="dialog"
+                aria-label="Layers"
+                ref={(el) => {
+                  // opens under its button, moved left only as far as it must to stay inside the model view
+                  if (!el) return
+                  el.style.left = '0px'
+                  const stage = el.closest('.stage')?.getBoundingClientRect()
+                  const r = el.getBoundingClientRect()
+                  if (!stage) return
+                  const over = Math.min(r.right - (stage.right - 8), r.left - (stage.left + 8))
+                  if (over > 0) el.style.left = -over + 'px'
+                }}
+              >
+                <ol className="layer-list">
+                  {layers.map((l, i) => {
+                    const n = layerCount(l.id)
+                    const isCur = l.id === current.id
+                    return (
+                      <li key={l.id} className={[isCur && 'cur', !l.on && 'hidden'].filter(Boolean).join(' ')}>
+                        <button className="layer-name" onClick={() => setCurLayer(l.id)} onDoubleClick={() => renameLayer(l.id)} title={isCur ? 'The current layer: new elements go here' : 'Make this the current layer: new elements go here'}>
+                          <span className="layer-radio" aria-hidden>{isCur ? '●' : '○'}</span>
+                          <span className="layer-text">{l.name}</span>
+                          <small>{n}</small>
+                        </button>
+                        <button className={'cf-btn' + (l.on ? '' : ' off')} onClick={() => toggleLayer(l.id, 'on')} aria-pressed={l.on} title={l.on ? 'Shown: click to hide this layer' : 'Hidden: click to show this layer'}>{l.on ? '👁' : '⨯'}</button>
+                        <button className={'cf-btn' + (l.locked ? ' locked' : '')} onClick={() => toggleLayer(l.id, 'locked')} aria-pressed={l.locked} title={l.locked ? 'Locked: its elements cannot be picked or moved. Click to unlock' : 'Click to lock: its elements cannot be picked or moved'}>{l.locked ? '🔒' : '🔓'}</button>
+                        <button className="cf-btn" disabled={!n || !l.on || l.locked} onClick={() => selectLayer(l.id)} title="Select every element on this layer">⬚</button>
+                        <button className="cf-btn" disabled={!i} onClick={() => moveLayer(l.id, -1)} title="Move up the list">↑</button>
+                        <button className="cf-btn" onClick={() => renameLayer(l.id)} title="Rename">✎</button>
+                        <button className="cf-btn" disabled={layers.length < 2} onClick={() => deleteLayer(l.id)} title="Delete the layer (its elements move to the first layer)">✕</button>
+                      </li>
+                    )
+                  })}
+                </ol>
+                <div className="actions">
+                  <button className="primary" onClick={addLayer}>+ New layer</button>
+                  <button onClick={() => setAllLayers({ on: true })}>Show all</button>
+                  <button onClick={() => setAllLayers({ locked: false })}>Unlock all</button>
+                </div>
+                <p className="muted small">● is the current layer: new elements go there. 👁 shows or hides a layer, 🔒 locks it so its elements stay put and can't be picked. To move elements to another layer, select them and pick a layer in the panel. Double-click a name to rename it.</p>
+              </div>
+            )}
+          </div>
+          <div className="pop-wrap">
             <div className="seg-group" role="group" aria-label="Labels">
               <button className={labelMenu ? 'on' : ''} onClick={() => setLabelMenu(!labelMenu)} aria-expanded={labelMenu}>Labels ▾</button>
             </div>
@@ -1172,6 +1296,32 @@ export default function App() {
                 onReset={() => setItemColour(null)}
               />
             )}
+            {selItems.length > 0 && (() => {
+              const on = new Set(selItems.map(layerOf))
+              return (
+                <label className="field">
+                  <span>Layer{selItems.length > 1 ? ' of all ' + selItems.length : ''}</span>
+                  <select
+                    value={on.size === 1 ? [...on][0] : ''}
+                    onChange={(e) => {
+                      const id = e.target.value
+                      if (!id) return
+                      changeItems((it) => ({ ...it, layer: id }))
+                      const l = layerById[id]
+                      if (!l.on || l.locked) {
+                        setPicked(new Set(sel))
+                        setNote(`Moved to "${l.name}", which is ${!l.on ? 'hidden' : 'locked'}.`)
+                      }
+                    }}
+                  >
+                    {on.size > 1 && <option value="">Several layers</option>}
+                    {layers.map((l) => (
+                      <option key={l.id} value={l.id}>{l.name}{!l.on ? ' (hidden)' : l.locked ? ' (locked)' : ''}</option>
+                    ))}
+                  </select>
+                </label>
+              )
+            })()}
             {selItems.length > 0 && (
               <div className="actions element-actions">
                 <button className="primary" disabled={selItems.length !== 1} onClick={startConnect} title="Hold the element by one point and put it on another (key C)">
@@ -1496,6 +1646,7 @@ export default function App() {
           <section>
             <h2>Add elements</h2>
             <p className="muted">Drag one onto the model, or click it to drop it in the middle of the view. Drop onto a roof to stack. Add as many as you like.</p>
+            <p className="muted small">New elements go on the layer <b>{current.name}</b>. Change it under Layers in the top bar.</p>
             {ELEMENT_GROUPS.map(([group, kinds]) => (
             <div key={group} className="kind-group">
             <h3>{group}</h3>

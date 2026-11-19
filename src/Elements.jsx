@@ -105,7 +105,7 @@ export function CarGarage({ g, s, colour, sel, onPick, connecting }) {
 }
 
 // All the elements you have added. Press on one to select it, then drag to move it.
-export function Elements({ items, picked, onSelect, onMove, snap, connecting }) {
+export function Elements({ items, picked, onSelect, onMove, snap, connecting, locked = new Set(), layerName = null }) {
   const { controls, scene, camera } = useThree()
   const rc = useMemo(() => new THREE.Raycaster(), [])
   const drag = useRef(null)
@@ -118,15 +118,17 @@ export function Elements({ items, picked, onSelect, onMove, snap, connecting }) 
   return items.map((it) => {
     const k = KINDS[it.kind]
     const size = dims(it)
+    const fixed = connecting || locked.has(it.id) // on a locked layer: clicks go through it
+    const kindLayer = it.kind === 'rmod' ? 'Ribbon - single modules' : `Elements - ${KINDS[it.kind].name}`
     return (
       <group
         key={it.id}
-        userData={{ layer: it.kind === 'rmod' ? 'Ribbon - single modules' : `Elements - ${KINDS[it.kind].name}` }}
+        userData={{ layer: layerName?.[it.id] ? `${layerName[it.id]} - ${kindLayer}` : kindLayer }}
         position={[it.x, it.z + ground(it.x, it.y), -it.y]}
         rotation={[0, (it.rot * PI) / 180, 0]}
-        onClick={(e) => !connecting && e.stopPropagation()}
+        onClick={(e) => !fixed && e.stopPropagation()}
         onPointerDown={(e) => {
-          if (connecting) return // let the click reach the connect dots
+          if (fixed) return // let the click reach the connect dots, or what is behind a locked element
           e.stopPropagation()
           onSelect(it.id, e.shiftKey || e.ctrlKey || e.metaKey)
           if (e.button !== 0) return
@@ -157,7 +159,7 @@ export function Elements({ items, picked, onSelect, onMove, snap, connecting }) 
         }}
         onPointerUp={end}
         onPointerCancel={end}
-        onPointerOver={() => (document.body.style.cursor = connecting ? '' : 'grab')}
+        onPointerOver={() => (document.body.style.cursor = fixed ? '' : 'grab')}
         onPointerOut={() => (document.body.style.cursor = '')}
       >
         {it.kind === 'rmod' ? (

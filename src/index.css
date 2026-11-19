@@ -196,3 +196,17 @@ h2 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; 
 .section-bar button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 5px 9px; font-weight: 600; font-size: 12.5px; }
 .section-bar input[type='range'] { width: 110px; vertical-align: middle; }
 .section-bar input[type='number'] { width: 64px; font: inherit; padding: 2px 4px; }
+
+/* layers */
+.layer-pop { width: 400px; left: 0; right: auto; }
+.layer-list { list-style: none; margin: 0 0 8px; padding: 0; }
+.layer-list li { display: grid; grid-template-columns: 1fr 26px 26px 26px 26px 26px 26px; gap: 4px; align-items: center; margin-bottom: 4px; }
+.layer-name { display: flex; align-items: center; gap: 6px; text-align: left; border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 3px 6px; min-width: 0; font-size: 12.5px; }
+.layer-name small { margin-left: auto; color: #7a7468; }
+.layer-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layer-radio { color: var(--accent); font-size: 11px; }
+.layer-list li.cur .layer-name { border-color: var(--accent); font-weight: 700; }
+.layer-list li.hidden .layer-text { color: #9a9488; text-decoration: line-through; }
+.cf-btn.off { opacity: 0.55; }
+.cf-btn.locked { background: #fff3d6; border-color: #d9a520; }
+.field select { width: 100%; font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
