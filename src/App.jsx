@@ -5,6 +5,7 @@ import { TITLES, TITLE } from './titles.js'
 import { ELEMENT_GROUPS, KINDS, alignRot, dims, placeByGrip, snapPoint } from './elements.js'
 import { MAP_STYLES, MAP_STYLE_IDS } from './mapStyles.js'
 import { TOPO_MODES, setTerrain, setTopo } from './terrain.js'
+import { sectionGeom, sideName } from './Views.jsx'
 import ColourField, { parseColour } from './ColourField.jsx'
 import { colourOf } from './Elements.jsx'
 import { MATERIALS, MATERIAL_IDS, lookOf, swatchOf } from './materials.js'
@@ -81,7 +82,14 @@ function clean(s) {
   const three = (v) => Array.isArray(v) && v.length === 3 && v.every((n) => Number.isFinite(+n))
   const views = (Array.isArray(s.views) ? s.views : [])
     .filter((v) => v && three(v.pos) && three(v.target))
-    .map((v, n) => ({ id: String(v.id ?? 'v' + n), name: String(v.name ?? 'View ' + (n + 1)).slice(0, 60), pos: v.pos.map(Number), target: v.target.map(Number) }))
+    .map((v, n) => ({
+      id: String(v.id ?? 'v' + n),
+      name: String(v.name ?? 'View ' + (n + 1)).slice(0, 60),
+      pos: v.pos.map(Number),
+      target: v.target.map(Number),
+      ...(v.ortho ? { ortho: true, zoom: +v.zoom > 0 ? +v.zoom : 3 } : {}),
+      ...(v.section && Number.isFinite(+v.section.angle) ? { section: { angle: +v.section.angle, offset: +v.section.offset || 0, flip: !!v.section.flip } } : {}),
+    }))
   return { title, block, items, ribbon: cleanRibbon(s.ribbon), map: cleanMap(s.map), glabel, drawn: cleanDrawn(s.drawn), heading, views }
 }
 // The ribbons you drew with the magic wand: { id, name, route: [[east, north], …], width, pieces }
@@ -245,6 +253,28 @@ export default function App() {
   const anyLabels = show.garages !== 'off' || show.ribbon !== 'off' || show.elements
   const [labelMenu, setLabelMenu] = useState(false)
   const [viewMenu, setViewMenu] = useState(false)
+  // drawing views: a parallel (orthographic) camera, and a section cut { angle, offset, flip }
+  const [ortho, setOrtho] = useState(false)
+  const [section, setSection] = useState(null)
+  const go = (name, extra = {}, parallel = false) => {
+    setOrtho(parallel)
+    setView({ name, t: Date.now(), ...extra })
+  }
+  const openSection = (sec) => {
+    const next = sec ?? section ?? { angle: 0, offset: 0, flip: false }
+    setSection(next)
+    go('section', { keepZoom: !!sec }, true)
+  }
+  const turnSection = (angle) => {
+    setSection((sc) => ({ ...sc, angle }))
+    go('section', { keepZoom: true }, true)
+  }
+  // which way you look in the section, as a compass word
+  const lookWord = (sc) => {
+    const { n } = sectionGeom(sc)
+    const deg = ((Math.atan2(n[0], n[1]) * 180) / Math.PI + 360) % 360
+    return ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(deg / 45) % 8]
+  }
   const [renaming, setRenaming] = useState(null) // the saved view whose name you are changing
   const [wand, setWand] = useState(null) // the magic wand: { pts, id (when changing a drawn ribbon's line), width }
   const [view, setView] = useState(null)
@@ -645,7 +675,7 @@ export default function App() {
     setPicked(new Set())
     setChosen(null)
     setWand(d ? { pts: d.route, id: d.id, width: d.width } : { pts: [], id: null, width: ribbon.width })
-    if (!d) setView({ name: 'plan', t: Date.now() })
+    if (!d) go('top', {}, true)
   }
   const wandLen = wand && wand.pts.length >= 2 ? routeCurve(wand.pts).getLength() : 0
   const finishWand = () => {
@@ -697,12 +727,14 @@ export default function App() {
     if (!cam) return
     let n = views.length + 1
     while (views.some((v) => v.name === 'View ' + n)) n++
-    const v = { id: newId(), name: (name ?? '').trim().slice(0, 60) || 'View ' + n, ...cam }
+    const v = { id: newId(), name: (name ?? '').trim().slice(0, 60) || 'View ' + n, ...cam, ...(section ? { section } : {}) }
+    if (!v.ortho) delete v.zoom
     setPlan((p) => ({ ...p, views: [...(p.views ?? []), v] }))
     setNote(`Saved “${v.name}”. Open ★ Views to come back to it${views.length < 9 ? `, or press ${views.length + 1}` : ''}.`)
   }
   const goView = (v) => {
-    setView({ name: 'saved', pos: v.pos, target: v.target, t: Date.now() })
+    setSection(v.section ?? null)
+    go('saved', { pos: v.pos, target: v.target, zoom: v.zoom }, !!v.ortho)
     setNote(`View: ${v.name}`)
   }
   const changeView = (id, change) => setPlan((p) => ({ ...p, views: (p.views ?? []).map((v) => (v.id === id ? { ...v, ...change } : v)) }))
@@ -865,7 +897,7 @@ export default function App() {
           }} view={view}
           items={items} onSelectItem={pick} onMoveItem={moveItem} onDropKind={addItem} snap={snap} api={api}
           connect={connect} onGrip={onGrip} onTarget={onTarget}
-          ribbon={ribbon} chosen={chosenList} onPickPiece={pickPiece} look={look} topo={topo}
+          ribbon={ribbon} chosen={chosenList} onPickPiece={pickPiece} look={look} topo={topo} ortho={ortho} section={section}
           drawn={drawn} active={curId} wand={wand} onWand={setWand} show={show} glabel={glabel} onEditLabel={editLabel}
         />
         {wand && (
@@ -881,6 +913,27 @@ export default function App() {
             <button disabled={!wand.pts.length} onClick={() => setWand((w) => ({ ...w, pts: [] }))}>Clear</button>
             <button className="primary" disabled={wand.pts.length < 2} onClick={finishWand} title="Enter">{wand.id ? 'Update the ribbon' : 'Turn into ribbon'}</button>
             <button onClick={() => setWand(null)} title="Esc">Cancel</button>
+          </div>
+        )}
+        {section && (
+          <div className="section-bar" role="group" aria-label="Section">
+            <b>Section</b>
+            <span className="muted small nowrap">looking {lookWord(section)}</span>
+            <div className="seg-group small-seg" role="group" aria-label="Direction of the cut">
+              {[[0, 'W–E'], [45, 'SW–NE'], [90, 'S–N'], [135, 'SE–NW']].map(([a, l]) => (
+                <button key={a} className={section.angle === a ? 'on' : ''} onClick={() => turnSection(a)} title={`The cut runs ${l}`}>{l}</button>
+              ))}
+            </div>
+            <label className="nowrap" title="Turn the cut">
+              Turn <input type="range" min="0" max="179" step="1" value={section.angle} onChange={(e) => turnSection(+e.target.value)} /> {section.angle}°
+            </label>
+            <label className="nowrap" title="Slide the cut across the model">
+              Position <input type="range" min="-350" max="350" step="0.5" value={section.offset} onChange={(e) => setSection((sc) => ({ ...sc, offset: +e.target.value }))} />
+              <input type="number" step="0.5" value={section.offset} onChange={(e) => Number.isFinite(+e.target.value) && setSection((sc) => ({ ...sc, offset: Math.max(-700, Math.min(700, +e.target.value)) }))} /> m
+            </label>
+            <button onClick={() => openSection({ ...section, flip: !section.flip })} title="Look at the cut from the other side">⇄ Other side</button>
+            <button onClick={() => openSection(section)} title="Look straight at the cut again">Face the cut</button>
+            <button onClick={() => setSection(null)}>Close</button>
           </div>
         )}
         {connect && (
@@ -909,9 +962,21 @@ export default function App() {
             <button disabled={!redos} onClick={redo} title="Redo (Ctrl+Y)">↷ Redo</button>
           </div>
           <div className="seg-group" role="group" aria-label="Camera">
-            <button onClick={() => setView({ name: 'home', t: Date.now() })}>3D</button>
-            <button onClick={() => setView({ name: 'plan', t: Date.now() })}>Plan</button>
-            <button onClick={() => setView({ name: 'ribbon', t: Date.now() })}>Ribbon</button>
+            <button onClick={() => go('home')} title="3D view in perspective">3D</button>
+            <button onClick={() => go('ribbon')} title="The whole ribbon from the south">Ribbon</button>
+            <button onClick={() => go('top', {}, true)} title="Top view: a true plan from straight above">Top</button>
+            <select
+              value=""
+              onChange={(e) => e.target.value && go('side', { dir: e.target.value }, true)}
+              title="Side view (elevation), seen straight from one side"
+              aria-label="Side view"
+            >
+              <option value="">Side</option>
+              {Object.entries(sideName).map(([k, l]) => <option key={k} value={k}>From the {l.toLowerCase()}</option>)}
+            </select>
+            <button onClick={() => go('iso', {}, true)} title="Isometric view from the south-west">Iso</button>
+            <button className={section ? 'on' : ''} onClick={() => openSection()} title="Section: cut through the model and look at the cut">Section</button>
+            <button className={ortho ? 'on' : ''} onClick={() => setOrtho(!ortho)} title="Parallel projection (no perspective), for drawings">⟂ Parallel</button>
           </div>
           <div className="pop-wrap">
             <div className="seg-group" role="group" aria-label="Saved views">

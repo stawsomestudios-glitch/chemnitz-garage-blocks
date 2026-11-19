@@ -188,3 +188,11 @@ h2 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; 
 .mat-dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; border: 1px solid rgba(0, 0, 0, 0.25); font-style: normal; }
 .drawn-mat { margin: 0 0 8px; font-size: 12.5px; }
 .drawn-mat summary { cursor: pointer; padding: 3px 0; font-weight: 600; }
+
+/* drawing views and the section bar */
+.seg-group[aria-label="Camera"] select { border-left: 1px solid var(--line); }
+.section-bar { position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%); z-index: 4; background: #fff; border: 2px solid #e30613; border-radius: 8px; padding: 7px 10px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: min(900px, 96%); box-shadow: 0 2px 10px rgba(0,0,0,.15); }
+.section-bar b { color: #e30613; }
+.section-bar button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 5px 9px; font-weight: 600; font-size: 12.5px; }
+.section-bar input[type='range'] { width: 110px; vertical-align: middle; }
+.section-bar input[type='number'] { width: 64px; font: inherit; padding: 2px 4px; }

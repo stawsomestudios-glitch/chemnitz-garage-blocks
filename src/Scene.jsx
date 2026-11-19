@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Line, OrbitControls } from '@react-three/drei'
+import { Line, OrbitControls, OrthographicCamera, PerspectiveCamera } from '@react-three/drei'
+import { CLIP, CameraRig, SectionCut } from './Views.jsx'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { GARAGES, BY_ID, MODULE } from './garages.js'
@@ -272,7 +273,12 @@ function LabelTracker({ items, refs }) {
     items.forEach((item, i) => {
       const el = refs.current[i]
       if (!el) return
-      v.set(item.p[0], item.p[1], item.p[2]).project(camera)
+      v.set(item.p[0], item.p[1], item.p[2])
+      if (CLIP.plane && CLIP.plane.distanceToPoint(v) < -0.5) {
+        el.style.display = 'none'
+        return
+      }
+      v.project(camera)
       const x = ((v.x + 1) / 2) * size.width
       const y = ((1 - v.y) / 2) * size.height
       if (!el._w) {
@@ -293,44 +299,6 @@ function LabelTracker({ items, refs }) {
       el.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px)`
     })
   })
-  return null
-}
-
-function Camera({ view, pieces }) {
-  const { camera, controls } = useThree()
-  useEffect(() => {
-    if (!controls || !view) return
-    // a saved view: back to exactly where the camera was and what it looked at
-    if (view.name === 'saved') {
-      const from = [camera.position.clone(), controls.target.clone()]
-      const to = [new THREE.Vector3(...view.pos), new THREE.Vector3(...view.target)]
-      const t0 = performance.now()
-      let raf
-      const step = () => {
-        const k = Math.min(1, (performance.now() - t0) / 500)
-        const e = k * k * (3 - 2 * k)
-        camera.position.lerpVectors(from[0], to[0], e)
-        controls.target.lerpVectors(from[1], to[1], e)
-        controls.update()
-        if (k < 1) raf = requestAnimationFrame(step)
-      }
-      step()
-      return () => cancelAnimationFrame(raf)
-    }
-    // "Zoom to it": look at one ribbon piece from the south-west, close up
-    const at = view.name === 'piece' ? pieces?.find((t) => t.i === view.i && t.rid === (view.rid ?? 'main'))?.p : null
-    if (at) {
-      camera.position.set(at[0] - 13, at[1] + 9, at[2] + 13)
-      controls.target.set(at[0], Math.max(0.5, at[1] - 1.6), at[2])
-      controls.update()
-      return
-    }
-    // the Ribbon view looks from the south, high up, so the whole ribbon is in view
-    const [pos, target] = view.name === 'plan' ? [[-3, 165, -4.99], TARGET] : view.name === 'ribbon' ? [[18, 300, 190], [18, 0, -30]] : [HOME, TARGET]
-    camera.position.set(...pos)
-    controls.target.set(...target)
-    controls.update()
-  }, [view, camera, controls]) // eslint-disable-line react-hooks/exhaustive-deps
   return null
 }
 
@@ -504,7 +472,7 @@ function Wand({ wand, onWand }) {
   )
 }
 
-export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget, ribbon, chosen, onPickPiece, look, drawn = [], active = 'main', wand, onWand, show, glabel = {}, onEditLabel, topo = 'flat' }) {
+export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget, ribbon, chosen, onPickPiece, look, drawn = [], active = 'main', wand, onWand, show, glabel = {}, onEditLabel, topo = 'flat', ortho = false, section = null }) {
   const built = useMemo(() => (ribbon.on ? buildRibbon(ribbon, undefined, ground) : null), [ribbon, topo]) // eslint-disable-line react-hooks/exhaustive-deps
   // the ribbons you drew with the magic wand, each along its own line
   const builtDrawn = useMemo(() => drawn.map((d) => ({ d, built: buildRibbon(d, d.route, ground) })), [drawn, topo]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -569,8 +537,14 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
         <Elements items={items} picked={picked} onSelect={onSelectItem} onMove={onMoveItem} snap={snap} connecting={passive} />
         <ConnectDots connect={connect} items={items} onGrip={onGrip} onTarget={onTarget} />
         <ViewApi api={api} />
-        <OrbitControls makeDefault target={TARGET} maxPolarAngle={Math.PI / 2.05} minDistance={6} maxDistance={600} />
-        <Camera view={view} pieces={allTags} />
+        {ortho ? (
+          <OrthographicCamera makeDefault near={-3000} far={6000} position={[0, 1500, 0]} zoom={3} />
+        ) : (
+          <PerspectiveCamera makeDefault fov={36} near={1} far={3000} position={HOME} />
+        )}
+        <OrbitControls makeDefault target={TARGET} maxPolarAngle={ortho ? Math.PI / 2 : Math.PI / 2.05} minDistance={ortho ? 0 : 6} maxDistance={ortho ? Infinity : 600} minZoom={0.3} maxZoom={200} />
+        <SectionCut section={section} topo={topo} />
+        <CameraRig view={view} ortho={ortho} pieces={allTags} section={section} />
         <LabelTracker items={tags} refs={refs} />
       </Canvas>
       <div className={passive ? "labels passive" : "labels"}>

@@ -258,7 +258,7 @@ export function ViewApi({ api }) {
     // where the camera is and what it looks at, to save as a view
     cameraNow() {
       const r = (v) => [v.x, v.y, v.z].map((n) => Math.round(n * 100) / 100)
-      return { pos: r(camera.position), target: controls ? r(controls.target) : [0, 0, 0] }
+      return { pos: r(camera.position), target: controls ? r(controls.target) : [0, 0, 0], ortho: !!camera.isOrthographicCamera, zoom: Math.round(camera.zoom * 1000) / 1000 }
     },
     centre() {
       return controls ? [controls.target.x, -controls.target.z, 0] : [0, 0, 0]
