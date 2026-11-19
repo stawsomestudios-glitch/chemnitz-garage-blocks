@@ -6,13 +6,13 @@ import { ELEMENT_GROUPS, KINDS, alignRot, dims, placeByGrip, snapPoint } from '.
 import { MAP_STYLES, MAP_STYLE_IDS } from './mapStyles.js'
 import ColourField, { parseColour } from './ColourField.jsx'
 import { colourOf } from './Elements.jsx'
-import { COBALT, DEFAULT_RIBBON, RIBBON_GROUPS, RIBBON_KINDS, STREETS, cleanRibbon, cleanSize, hasHeight, moduleLen, pieceTop, pieceWidth, routeCurve } from './ribbon.js'
+import { COBALT, DEFAULT_RIBBON, RIBBON_GROUPS, RIBBON_KINDS, STREETS, VERSION, cleanRibbon, cleanSize, hasHeight, moduleLen, pieceTop, pieceWidth, routeCurve } from './ribbon.js'
 
 const BASE = import.meta.env.BASE_URL
 const KEY = 'chemnitz-garage-blocks-v1'
 const ALL = GARAGES.map((g) => g.id)
 const DEFAULT_MAP = { style: 'current', colours: {} }
-const EMPTY = { title: {}, block: {}, items: [], ribbon: DEFAULT_RIBBON, map: DEFAULT_MAP }
+const EMPTY = { title: {}, block: {}, items: [], ribbon: DEFAULT_RIBBON, map: DEFAULT_MAP, glabel: {}, drawn: [], heading: { title: '', sub: '' } }
 // the map layers you can recolour, in the order the Map section lists them
 const MAP_LAYERS = [
   ['bg', 'Sky / background'], ['ground', 'Ground'], ['green', 'Green areas'], ['parking', 'Parking'], ['site', 'Garage yard'],
@@ -58,6 +58,7 @@ function clean(s) {
       if (TITLE[it.title] && KINDS[it.kind].titled) out.title = it.title
       for (const k of ['sw', 'sd', 'sh']) if (+it[k] > 0) out[k] = +it[k]
       if (it.col && parseColour(it.col)) out.col = parseColour(it.col)
+      if (it.label) out.label = String(it.label).slice(0, 60)
       if (it.kind === 'rmod') {
         const rk = RIBBON_KINDS[it.rk] && !RIBBON_KINDS[it.rk].gap ? it.rk : 'bench'
         out.rk = rk
@@ -68,8 +69,60 @@ function clean(s) {
       }
       return out
     })
-  return { title, block, items, ribbon: cleanRibbon(s.ribbon), map: cleanMap(s.map) }
+  const glabel = {}
+  for (const id of ALL) if (s.glabel?.[id]) glabel[id] = String(s.glabel[id]).slice(0, 60)
+  const heading = { title: String(s.heading?.title ?? '').slice(0, 80), sub: String(s.heading?.sub ?? '').slice(0, 300) }
+  return { title, block, items, ribbon: cleanRibbon(s.ribbon), map: cleanMap(s.map), glabel, drawn: cleanDrawn(s.drawn), heading }
 }
+// The ribbons you drew with the magic wand: { id, name, route: [[east, north], …], width, pieces }
+function cleanDrawn(list) {
+  if (!Array.isArray(list)) return []
+  return list
+    .filter((d) => d && Array.isArray(d.route))
+    .map((d, n) => {
+      const route = d.route.filter((p) => Array.isArray(p) && p.every((v) => Number.isFinite(+v))).map(([x, y]) => [+x, +y])
+      const r = cleanRibbon({ v: VERSION, on: true, width: d.width, pieces: Array.isArray(d.pieces) && d.pieces.length ? d.pieces : [{ kind: 'path', len: 5 }] })
+      return { id: String(d.id ?? 'd' + n), name: String(d.name ?? 'Drawn ribbon ' + (n + 1)).slice(0, 60), route, width: r.width, pieces: r.pieces }
+    })
+    .filter((d) => d.route.length >= 2)
+}
+
+// Text you can click to change, for the page title and subtitle. Empty brings back the usual text.
+function EditableText({ as: Tag, value, fallback, onSave, long }) {
+  const [edit, setEdit] = useState(false)
+  const skip = useRef(false)
+  if (edit) {
+    const Box = long ? 'textarea' : 'input'
+    return (
+      <Box
+        className={'edit-text edit-' + Tag}
+        autoFocus
+        defaultValue={value || fallback}
+        rows={long ? 3 : undefined}
+        onFocus={(e) => e.target.select()}
+        onBlur={(e) => {
+          if (!skip.current) onSave(e.target.value.trim() === fallback ? '' : e.target.value.trim())
+          skip.current = false
+          setEdit(false)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) e.target.blur()
+          if (e.key === 'Escape') {
+            skip.current = true
+            e.target.blur()
+          }
+        }}
+      />
+    )
+  }
+  return (
+    <Tag className="editable" title="Click to change" tabIndex={0} onClick={() => setEdit(true)} onKeyDown={(e) => e.key === 'Enter' && setEdit(true)}>
+      {value || fallback}
+      <span className="pen" aria-hidden="true"> ✎</span>
+    </Tag>
+  )
+}
+
 // Every change to the plan goes through here, so it can be undone and redone (up to 100 steps).
 // Changes with the same key in quick succession (one drag) count as one step.
 function useHistory(init) {
@@ -142,7 +195,22 @@ export default function App() {
   const [plan, setPlan, undo, redo, undos, redos] = useHistory(loadSaved)
   const [picked, setPicked] = useState(() => new Set())
   const [multi, setMulti] = useState(false)
-  const [labels, setLabels] = useState('titles')
+  // which labels show: garages (titles / numbers / both / off), ribbon pieces (names / numbers / both / off), elements (on / off)
+  const [show, setShow] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('chemnitz-garage-labels'))
+      if (s && s.garages) return s
+    } catch {}
+    return { garages: 'titles', ribbon: 'names', elements: true }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('chemnitz-garage-labels', JSON.stringify(show))
+    } catch {}
+  }, [show])
+  const anyLabels = show.garages !== 'off' || show.ribbon !== 'off' || show.elements
+  const [labelMenu, setLabelMenu] = useState(false)
+  const [wand, setWand] = useState(null) // the magic wand: { pts, id (when changing a drawn ribbon's line), width }
   const [view, setView] = useState(null)
   const [note, setNote] = useState(null)
   const [snap, setSnap] = useState('grid')
@@ -312,11 +380,21 @@ export default function App() {
   }
 
   // ----- the ribbon -----
+  // The main ribbon, and the ribbons you drew with the magic wand. The pieces you pick belong to one of them: `cur`.
+  const drawn = plan.drawn ?? []
+  const [active, setActive] = useState('main')
+  const cur = active === 'main' ? ribbon : (drawn.find((d) => d.id === active) ?? ribbon)
+  const curId = cur === ribbon ? 'main' : active
   const setRibbon = (fn) => setPlan((p) => ({ ...p, ribbon: fn(p.ribbon) }))
+  const setCur = (fn) => (curId === 'main' ? setRibbon(fn) : setPlan((p) => ({ ...p, drawn: (p.drawn ?? []).map((d) => (d.id === curId ? fn(d) : d)) })))
+  const setDrawn = (id, change) => setPlan((p) => ({ ...p, drawn: (p.drawn ?? []).map((d) => (d.id === id ? { ...d, ...change } : d)) }))
   // Shift-click (or the "Add to selection" box) adds a piece to the ones picked, or takes it out again.
-  const pickPiece = (i, add) => {
+  const pickPiece = (i, add, rid = 'main') => {
     if (i == null || i < 0) return
-    setChosenList((old) => (add || multi ? (old.includes(i) ? old.filter((k) => k !== i) : [...old, i]) : [i]))
+    if (rid !== curId) {
+      setActive(rid)
+      setChosenList([i])
+    } else setChosenList((old) => (add || multi ? (old.includes(i) ? old.filter((k) => k !== i) : [...old, i]) : [i]))
     setPicked(new Set())
   }
   // A change to one piece or several. A new kind drops a height you set (a bench height makes no sense for a lookout).
@@ -324,19 +402,19 @@ export default function App() {
     const kind = change.rk ?? change.kind ?? (p.kind === 'rmod' ? p.rk : p.kind)
     const next = { ...p, ...change, len: Math.max(RIBBON_KINDS[kind].min, change.len ?? p.len) }
     if ((change.kind && change.kind !== p.kind) || (change.rk && change.rk !== p.rk) || !hasHeight(kind)) delete next.h
-    for (const k of ['w', 'h']) if (next[k] == null) delete next[k]
+    for (const k of ['w', 'h', 'label']) if (next[k] == null || next[k] === '') delete next[k]
     return next
   }
-  const editPieces = (list, change) => setRibbon((r) => ({ ...r, pieces: r.pieces.map((p, k) => (list.includes(k) ? sized(p, change) : p)) }))
+  const editPieces = (list, change) => setCur((r) => ({ ...r, pieces: r.pieces.map((p, k) => (list.includes(k) ? sized(p, change) : p)) }))
   const editPiece = (i, change) => editPieces([i], change)
   const splitPiece = (i) =>
-    setRibbon((r) => {
+    setCur((r) => {
       const p = r.pieces[i]
       const half = Math.round((p.len / 2) * 10) / 10
       return { ...r, pieces: [...r.pieces.slice(0, i), { ...p, len: half }, { kind: 'path', len: Math.round((p.len - half) * 10) / 10 }, ...r.pieces.slice(i + 1)] }
     })
   const deletePiece = (i) => {
-    setRibbon((r) => ({ ...r, pieces: r.pieces.length > 1 ? r.pieces.filter((_, k) => k !== i) : r.pieces }))
+    setCur((r) => ({ ...r, pieces: r.pieces.length > 1 ? r.pieces.filter((_, k) => k !== i) : r.pieces }))
     setChosen(null)
   }
   const resetRibbon = () => {
@@ -347,28 +425,31 @@ export default function App() {
   const ribbonLen = ribbon.pieces.reduce((a, p) => a + p.len, 0)
   const curve = useMemo(() => routeCurve(), [])
   const routeLen = useMemo(() => curve.getLength(), [curve])
-  // where a point along the ribbon is on the map, and which way the ribbon runs there
-  const along = (s) => {
-    const u = Math.min(1, Math.max(0, s / routeLen))
-    const P = curve.getPointAt(u)
-    const T = curve.getTangentAt(u)
+  // where a point along a ribbon is on the map, and which way the ribbon runs there
+  const alongOn = (c, s) => {
+    const u = Math.min(1, Math.max(0, s / c.getLength()))
+    const P = c.getPointAt(u)
+    const T = c.getTangentAt(u)
     return { x: P.x, y: -P.z, rot: (Math.atan2(-T.x, -T.z) * 180) / Math.PI }
   }
+  const along = (s) => alongOn(curve, s) // on the main ribbon
   const startOf = (i) => ribbon.pieces.slice(0, i).reduce((a, p) => a + p.len, 0)
+  const curCurve = useMemo(() => (curId === 'main' ? curve : routeCurve(cur.route)), [curId, cur.route, curve])
 
   // Detach: each piece leaves the ribbon as a single straight module, in the same place; a gap stays behind.
   const detachPieces = (list) => {
-    const out = list.filter((i) => ribbon.pieces[i] && !RIBBON_KINDS[ribbon.pieces[i].kind].gap)
+    const out = list.filter((i) => cur.pieces[i] && !RIBBON_KINDS[cur.pieces[i].kind].gap)
     if (!out.length) return
     const mods = out.map((i) => {
-      const p = ribbon.pieces[i]
-      const at = along(startOf(i) + p.len / 2)
-      return { id: newId() + i, kind: 'rmod', rk: p.kind, len: p.len, bw: ribbon.width, x: at.x, y: at.y, z: 0, rot: at.rot, ...(p.flip ? { flip: true } : {}), ...cleanSize(p) }
+      const p = cur.pieces[i]
+      const at = alongOn(curCurve, cur.pieces.slice(0, i).reduce((a, q) => a + q.len, 0) + p.len / 2)
+      return { id: newId() + i, kind: 'rmod', rk: p.kind, len: p.len, bw: cur.width, x: at.x, y: at.y, z: 0, rot: at.rot, ...(p.flip ? { flip: true } : {}), ...cleanSize(p) }
     })
+    const gaps = (r) => ({ ...r, pieces: r.pieces.map((q, k) => (out.includes(k) ? { kind: 'gap', len: q.len } : q)) })
     setPlan((pl) => ({
       ...pl,
       items: [...pl.items, ...mods],
-      ribbon: { ...pl.ribbon, pieces: pl.ribbon.pieces.map((q, k) => (out.includes(k) ? { kind: 'gap', len: q.len } : q)) },
+      ...(curId === 'main' ? { ribbon: gaps(pl.ribbon) } : { drawn: pl.drawn.map((d) => (d.id === curId ? gaps(d) : d)) }),
     }))
     setChosen(null)
     setPicked(new Set(mods.map((m) => m.id)))
@@ -380,7 +461,7 @@ export default function App() {
   }
   const detachPiece = (i) => detachPieces([i])
   const deletePieces = (list) => {
-    setRibbon((r) => {
+    setCur((r) => {
       const left = r.pieces.filter((_, k) => !list.includes(k))
       return { ...r, pieces: left.length ? left : r.pieces }
     })
@@ -444,9 +525,9 @@ export default function App() {
     if (key === 'w') return { w: Math.min(12, Math.max(0.3, Math.round(v * 100) / 100)) }
     return { h: Math.min(10, Math.max(0.25, Math.round(v * 100) / 100)) }
   }
-  const piece = chosen != null ? ribbon.pieces[chosen] : null
-  const startAt = chosen != null ? ribbon.pieces.slice(0, chosen).reduce((a, p) => a + p.len, 0) : 0
-  const chosenPieces = chosenList.map((i) => ribbon.pieces[i]).filter(Boolean)
+  const piece = chosen != null ? cur.pieces[chosen] : null
+  const startAt = chosen != null ? cur.pieces.slice(0, chosen).reduce((a, p) => a + p.len, 0) : 0
+  const chosenPieces = chosenList.map((i) => cur.pieces[i]).filter(Boolean)
   // the size of a piece or module as you see it: its own width / height, or its usual one
   const sizeOf = (kind, p, bw) => ({ w: pieceWidth(kind, bw, p.w), h: pieceTop(kind, p.len, p.h), len: p.len })
   const setWidth = (e) => +e.target.value >= 0.6 && setRibbon((r) => ({ ...r, width: Math.min(8, Math.round(+e.target.value * 10) / 10) }))
@@ -489,12 +570,78 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (chosenList.some((i) => i >= ribbon.pieces.length)) setChosenList((l) => l.filter((i) => i < ribbon.pieces.length))
-  }, [chosenList, ribbon.pieces.length])
+    if (chosenList.some((i) => i >= cur.pieces.length)) setChosenList((l) => l.filter((i) => i < cur.pieces.length))
+    if (active !== 'main' && !drawn.some((d) => d.id === active)) setActive('main')
+  }, [chosenList, cur.pieces.length, active, drawn])
+
+  // ----- the magic wand -----
+  const startWand = (d) => {
+    setConnect(null)
+    setPicked(new Set())
+    setChosen(null)
+    setWand(d ? { pts: d.route, id: d.id, width: d.width } : { pts: [], id: null, width: ribbon.width })
+    if (!d) setView({ name: 'plan', t: Date.now() })
+  }
+  const wandLen = wand && wand.pts.length >= 2 ? routeCurve(wand.pts).getLength() : 0
+  const finishWand = () => {
+    if (!wand) return
+    if (wand.pts.length < 2) return setNote('Click at least two points on the ground first.')
+    const route = wand.pts.map(([x, y]) => [Math.round(x * 10) / 10, Math.round(y * 10) / 10])
+    const total = Math.max(1, Math.round(routeCurve(route).getLength() * 10) / 10)
+    if (wand.id) {
+      setPlan((p) => ({ ...p, drawn: (p.drawn ?? []).map((d) => (d.id === wand.id ? { ...d, route, pieces: d.pieces.length === 1 ? [{ ...d.pieces[0], len: total }] : d.pieces } : d)) }))
+      setActive(wand.id)
+      setNote(`Line changed: now ${total} m.`)
+    } else {
+      const id = newId()
+      let n = drawn.length + 1
+      while (drawn.some((d) => d.name === 'Drawn ribbon ' + n)) n++
+      const name = 'Drawn ribbon ' + n
+      setPlan((p) => ({ ...p, drawn: [...(p.drawn ?? []), { id, name, route, width: wand.width, pieces: [{ kind: 'path', len: total }] }] }))
+      setActive(id)
+      setChosenList([0])
+      setNote(`${name}: ${total} m, one PATH piece. Choose a kind for it, split it, or pick its pieces like on the main ribbon.`)
+    }
+    setWand(null)
+  }
+  // a label you typed yourself; empty brings back the usual one
+  const setLabel = (edit, text) => {
+    const t = String(text ?? '').trim().slice(0, 60)
+    if (edit.type === 'g') {
+      const ids = members(edit.id)
+      setPlan((p) => {
+        const g = { ...(p.glabel ?? {}) }
+        for (const id of ids) t ? (g[id] = t) : delete g[id]
+        return { ...p, glabel: g }
+      })
+    } else if (edit.type === 'e') {
+      setPlan((p) => ({ ...p, items: p.items.map((it) => (it.id === edit.id ? (t ? { ...it, label: t } : (({ label, ...rest }) => rest)(it)) : it)) }))
+    } else {
+      const fix = (r) => ({ ...r, pieces: r.pieces.map((q, k) => (k === edit.i ? (t ? { ...q, label: t } : (({ label, ...rest }) => rest)(q)) : q)) })
+      setPlan((p) => (edit.rid === 'main' ? { ...p, ribbon: fix(p.ribbon) } : { ...p, drawn: (p.drawn ?? []).map((d) => (d.id === edit.rid ? fix(d) : d)) }))
+    }
+  }
+  const editLabel = (edit) => {
+    const t = prompt(`Label (leave it empty for the usual one: ${edit.usual})`, edit.text)
+    if (t !== null) setLabel(edit, t)
+  }
+  const glabel = plan.glabel ?? {}
+  const heading = plan.heading ?? { title: '', sub: '' }
+  useEffect(() => {
+    document.title = heading.title || 'Chemnitz Garage Blocks'
+  }, [heading.title])
 
   useEffect(() => {
     const key = (e) => {
-      if (e.target.tagName === 'INPUT') return
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      if (wand) {
+        if (e.key === 'Escape') setWand(null)
+        else if (e.key === 'Enter') finishWand()
+        else if (e.key === 'Backspace' || e.key === 'Delete' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z')) setWand((w) => ({ ...w, pts: w.pts.slice(0, -1) }))
+        else return
+        e.preventDefault()
+        return
+      }
       if (e.ctrlKey || e.metaKey) {
         const k = e.key.toLowerCase()
         if (k === 'z' && !e.shiftKey) undo()
@@ -621,14 +768,30 @@ export default function App() {
       <main className="stage">
         <Scene
           site={site} title={title} block={block} picked={picked} onPick={pick} onClear={() => {
-            if (connect) return
+            if (connect || wand) return
             setPicked(new Set())
             setChosen(null)
-          }} labels={labels} view={view}
+          }} view={view}
           items={items} onSelectItem={pick} onMoveItem={moveItem} onDropKind={addItem} snap={snap} api={api}
           connect={connect} onGrip={onGrip} onTarget={onTarget}
           ribbon={ribbon} chosen={chosenList} onPickPiece={pickPiece} look={look}
+          drawn={drawn} active={curId} wand={wand} onWand={setWand} show={show} glabel={glabel} onEditLabel={editLabel}
         />
+        {wand && (
+          <div className="connect-bar wand-bar" role="status">
+            <b>✦ Magic wand{wand.id ? ` · ${drawn.find((d) => d.id === wand.id)?.name ?? ''}` : ''}</b>
+            {wand.pts.length === 0
+              ? ' Click on the ground to start the line. Each click adds a point.'
+              : ` ${wand.pts.length} point${wand.pts.length > 1 ? 's' : ''}${wandLen ? `, ${wandLen.toFixed(1)} m` : ''}. Click to add a point · drag a point to move it · Ctrl-click puts a point into the line · Shift-click a point removes it.`}
+            <label className="nowrap wand-width">
+              Width <input type="number" min="0.6" max="12" step="0.2" value={wand.width} onChange={(e) => +e.target.value > 0 && setWand((w) => ({ ...w, width: Math.min(12, Math.max(0.6, +e.target.value)) }))} /> m
+            </label>
+            <button disabled={!wand.pts.length} onClick={() => setWand((w) => ({ ...w, pts: w.pts.slice(0, -1) }))} title="Take out the last point (Backspace)">Undo point</button>
+            <button disabled={!wand.pts.length} onClick={() => setWand((w) => ({ ...w, pts: [] }))}>Clear</button>
+            <button className="primary" disabled={wand.pts.length < 2} onClick={finishWand} title="Enter">{wand.id ? 'Update the ribbon' : 'Turn into ribbon'}</button>
+            <button onClick={() => setWand(null)} title="Esc">Cancel</button>
+          </div>
+        )}
         {connect && (
           <div className="connect-bar" role="status">
             <b>{connect.stage === 'grip' ? 'Step 1 of 2' : 'Step 2 of 2'}</b>
@@ -659,6 +822,9 @@ export default function App() {
             <button onClick={() => setView({ name: 'plan', t: Date.now() })}>Plan</button>
             <button onClick={() => setView({ name: 'ribbon', t: Date.now() })}>Ribbon</button>
           </div>
+          <div className="seg-group" role="group" aria-label="Magic wand">
+            <button className={wand ? 'on' : ''} onClick={() => (wand ? setWand(null) : startWand())} title="Draw a line on the ground and turn it into a ribbon">✦ Magic wand</button>
+          </div>
           <div className="seg-group" role="group" aria-label="Map style">
             <select value={map.style} onChange={(e) => setMapStyle(e.target.value)} title="Map style (change its colours in the Map section)">
               {MAP_STYLE_IDS.map((id) => <option key={id} value={id}>Map: {MAP_STYLES[id].name}</option>)}
@@ -669,10 +835,34 @@ export default function App() {
               {shooting ? 'Saving…' : '📷 Picture'}
             </button>
           </div>
-          <div className="seg-group" role="group" aria-label="Labels">
-            {[['titles', 'Titles'], ['numbers', 'Numbers'], ['off', 'Off']].map(([k, l]) => (
-              <button key={k} className={labels === k ? 'on' : ''} onClick={() => setLabels(k)}>{l}</button>
-            ))}
+          <div className="pop-wrap">
+            <div className="seg-group" role="group" aria-label="Labels">
+              <button className={labelMenu ? 'on' : ''} onClick={() => setLabelMenu(!labelMenu)} aria-expanded={labelMenu}>Labels ▾</button>
+            </div>
+            {labelMenu && (
+              <div className="label-pop" role="dialog" aria-label="Labels">
+                {[
+                  ['garages', 'Garages', [['titles', 'Titles'], ['numbers', 'Numbers'], ['both', 'Both'], ['off', 'Off']]],
+                  ['ribbon', 'Ribbon pieces', [['names', 'Names'], ['numbers', 'Numbers'], ['both', 'Both'], ['off', 'Off']]],
+                  ['elements', 'Elements', [[true, 'On'], [false, 'Off']]],
+                ].map(([key, name, opts]) => (
+                  <div key={key} className="snaprow">
+                    <span>{name}</span>
+                    <div className="seg-group small-seg" role="group" aria-label={name + ' labels'}>
+                      {opts.map(([v, l]) => (
+                        <button key={String(v)} className={show[key] === v ? 'on' : ''} onClick={() => setShow((s) => ({ ...s, [key]: v }))}>{l}</button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <div className="actions">
+                  <button onClick={() => setShow({ garages: 'numbers', ribbon: 'numbers', elements: false })}>Only numbers</button>
+                  <button onClick={() => setShow({ garages: 'off', ribbon: 'off', elements: false })}>All off</button>
+                  <button onClick={() => setShow({ garages: 'titles', ribbon: 'names', elements: true })}>Usual</button>
+                </div>
+                <p className="muted small">Double-click a label in the model to change its text, or select a garage, piece or element and type it in the panel.</p>
+              </div>
+            )}
           </div>
         </div>
         <p className="hint">Drag to turn · scroll to zoom · right-drag to move · zoom in to see every title</p>
@@ -681,8 +871,8 @@ export default function App() {
 
       <aside className="panel">
         <header>
-          <h1>Chemnitz Garage Blocks</h1>
-          <p>Helbersdorf, Haydnstraße / Stollberger Straße. 115 single garages, each 3 m wide, 6 m deep, 3 m tall.</p>
+          <EditableText as="h1" value={heading.title} fallback="Chemnitz Garage Blocks" onSave={(t) => setPlan((p) => ({ ...p, heading: { ...(p.heading ?? {}), title: t } }))} />
+          <EditableText as="p" long value={heading.sub} fallback="Helbersdorf, Haydnstraße / Stollberger Straße. 115 single garages, each 3 m wide, 6 m deep, 3 m tall." onSave={(t) => setPlan((p) => ({ ...p, heading: { ...(p.heading ?? {}), sub: t } }))} />
         </header>
 
         <div className="body">
@@ -720,6 +910,37 @@ export default function App() {
                   <button onClick={resetSize}>Normal size</button>
                 </div>
               </div>
+            )}
+            {sel.length > 0 && (() => {
+              const own = new Set(withBlocks(sel).map((id) => glabel[id] ?? ''))
+              return (
+                <label className="field">
+                  <span>Label{sel.length > 1 ? ' of all ' + withBlocks(sel).length : ''}</span>
+                  <input
+                    key={'gl' + sel.join(',') + [...own].join('|')}
+                    defaultValue={own.size === 1 ? [...own][0] : ''}
+                    placeholder={own.size > 1 ? 'mixed' : title[sel[0]] ? TITLE[title[sel[0]]].name : sel[0]}
+                    onBlur={(e) => e.target.value !== e.target.defaultValue && withBlocks(sel).length && setPlan((p) => {
+                      const g = { ...(p.glabel ?? {}) }
+                      for (const id of withBlocks(sel)) e.target.value.trim() ? (g[id] = e.target.value.trim().slice(0, 60)) : delete g[id]
+                      return { ...p, glabel: g }
+                    })}
+                    onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                  />
+                </label>
+              )
+            })()}
+            {selItems.length > 0 && (
+              <label className="field">
+                <span>Label{selItems.length > 1 ? ' of all ' + selItems.length : ''}</span>
+                <input
+                  key={'el' + selItems.map((it) => it.id + (it.label ?? '')).join(',')}
+                  defaultValue={selItems.every((it) => (it.label ?? '') === (selItems[0].label ?? '')) ? (selItems[0].label ?? '') : ''}
+                  placeholder={selItems[0].title && TITLE[selItems[0].title] ? TITLE[selItems[0].title].name : 'No label'}
+                  onBlur={(e) => e.target.value !== e.target.defaultValue && setPlan((p) => ({ ...p, items: p.items.map((it) => (picked.has(it.id) ? (e.target.value.trim() ? { ...it, label: e.target.value.trim().slice(0, 60) } : (({ label, ...rest }) => rest)(it)) : it)) }))}
+                  onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                />
+              </label>
             )}
             {selItems.length > 0 && (
               <ColourField
@@ -794,11 +1015,21 @@ export default function App() {
           {piece && (
             <section className="piece">
               <h2>
-                <span className="dot" style={{ background: COBALT }} /> Ribbon piece {chosen + 1} of {ribbon.pieces.length}: {RIBBON_KINDS[piece.kind].name}{piece.flip ? ' (flipped)' : ''}
+                <span className="dot" style={{ background: COBALT }} /> {curId === 'main' ? 'Ribbon' : cur.name} · piece {chosen + 1} of {cur.pieces.length}: {RIBBON_KINDS[piece.kind].name}{piece.flip ? ' (flipped)' : ''}
               </h2>
               <p className="muted">
                 From {startAt.toFixed(1)} m to {(startAt + piece.len).toFixed(1)} m along the ribbon. {RIBBON_KINDS[piece.kind].note ?? ''}
               </p>
+              <label className="field">
+                <span>Label</span>
+                <input
+                  key={'pl' + curId + chosen + (piece.label ?? '')}
+                  defaultValue={piece.label ?? ''}
+                  placeholder={RIBBON_KINDS[piece.kind].name}
+                  onBlur={(e) => e.target.value !== e.target.defaultValue && setLabel({ type: 'r', rid: curId, i: chosen }, e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                />
+              </label>
               {RIBBON_GROUPS.map(([group, kinds]) => (
                 <div key={group} className="kind-group">
                   <h3>{group}</h3>
@@ -813,7 +1044,7 @@ export default function App() {
               ))}
               <SizeBoxes
                 id={'p' + chosen}
-                vals={sizeOf(piece.kind, piece, ribbon.width)}
+                vals={sizeOf(piece.kind, piece, cur.width)}
                 min={RIBBON_KINDS[piece.kind].min}
                 heightOk={hasHeight(piece.kind)}
                 custom={piece.w != null || piece.h != null}
@@ -824,33 +1055,33 @@ export default function App() {
                 onReset={() => editPiece(chosen, { w: undefined, h: undefined })}
               />
               <div className="actions">
-                <button className="primary" onClick={() => setView({ name: 'piece', i: chosen, t: Date.now() })}>Zoom to it</button>
+                <button className="primary" onClick={() => setView({ name: 'piece', i: chosen, rid: curId, t: Date.now() })}>Zoom to it</button>
                 <button disabled={chosen === 0} onClick={() => setChosen(chosen - 1)}>← Previous</button>
-                <button disabled={chosen >= ribbon.pieces.length - 1} onClick={() => setChosen(chosen + 1)}>Next →</button>
+                <button disabled={chosen >= cur.pieces.length - 1} onClick={() => setChosen(chosen + 1)}>Next →</button>
                 <button className={piece.flip ? 'on' : ''} onClick={() => editPiece(chosen, { flip: !piece.flip })} title="Mirror this piece end to end (key F)">⇄ Flip</button>
                 <button onClick={() => splitPiece(chosen)}>Split in two</button>
                 <button disabled={!!RIBBON_KINDS[piece.kind].gap} onClick={() => detachPiece(chosen)} title="Take this piece out of the ribbon as a single module you can move; a gap stays">Detach</button>
-                <button className="danger" disabled={ribbon.pieces.length < 2} onClick={() => deletePiece(chosen)}>Delete piece</button>
+                <button className="danger" disabled={cur.pieces.length < 2} onClick={() => deletePiece(chosen)}>Delete piece</button>
               </div>
               <p className="muted small">
-                Pieces after this one slide along when you change its length. Keep the CROSSING pieces over the streets:{' '}
-                {STREETS.map(([name, a, b]) => `${name} ${a}–${b} m`).join(', ')}.
+                Pieces after this one slide along when you change its length.
+                {curId === 'main' ? <> Keep the CROSSING pieces over the streets: {STREETS.map(([name, a, b]) => `${name} ${a}–${b} m`).join(', ')}.</> : ' Change the line itself under Drawn ribbons.'}
               </p>
             </section>
           )}
 
           {chosenList.length > 1 && (() => {
             const kinds = new Set(chosenPieces.map((p) => p.kind))
-            const all = chosenPieces.map((p) => sizeOf(p.kind, p, ribbon.width))
+            const all = chosenPieces.map((p) => sizeOf(p.kind, p, cur.width))
             const same = (k) => (all.every((s) => s[k] === all[0][k]) ? all[0][k] : null)
             const flipped = chosenPieces.every((p) => p.flip)
             return (
               <section className="piece">
                 <h2>
-                  <span className="dot" style={{ background: COBALT }} /> {chosenList.length} ribbon pieces selected
+                  <span className="dot" style={{ background: COBALT }} /> {chosenList.length} pieces of {curId === 'main' ? 'the ribbon' : cur.name} selected
                 </h2>
                 <p className="muted">
-                  {[...chosenList].sort((a, b) => a - b).map((i) => `${i + 1} ${RIBBON_KINDS[ribbon.pieces[i]?.kind]?.name ?? ''}`).join(' · ')}. Everything you change here
+                  {[...chosenList].sort((a, b) => a - b).map((i) => `${i + 1} ${RIBBON_KINDS[cur.pieces[i]?.kind]?.name ?? ''}`).join(' · ')}. Everything you change here
                   changes all of them. Shift-click a piece again to take it out.
                 </p>
                 {RIBBON_GROUPS.map(([group, ks]) => (
@@ -881,7 +1112,7 @@ export default function App() {
                   <button className={flipped ? 'on' : ''} onClick={() => editPieces(chosenList, { flip: !flipped })} title="Mirror them end to end (key F)">⇄ Flip all</button>
                   <button disabled={chosenPieces.every((p) => RIBBON_KINDS[p.kind].gap)} onClick={() => detachPieces(chosenList)} title="Take them out of the ribbon as single modules; gaps stay">Detach all</button>
                   <button onClick={() => setChosen(null)}>Deselect</button>
-                  <button className="danger" disabled={chosenList.length >= ribbon.pieces.length} onClick={() => deletePieces(chosenList)}>Delete pieces</button>
+                  <button className="danger" disabled={chosenList.length >= cur.pieces.length} onClick={() => deletePieces(chosenList)}>Delete pieces</button>
                 </div>
                 <p className="muted small">A height only changes pieces that have one; flat paths stay flat. Pieces after them slide along when you change a length.</p>
               </section>
@@ -908,8 +1139,8 @@ export default function App() {
             <ol className="pieces">
               {ribbon.pieces.map((p, i) => (
                 <li key={i}>
-                  <button className={chosenList.includes(i) ? 'on' : ''} onClick={(e) => pickPiece(i, e.shiftKey || e.ctrlKey || e.metaKey)}>
-                    <span>{RIBBON_KINDS[p.kind].name}</span>
+                  <button className={curId === 'main' && chosenList.includes(i) ? 'on' : ''} onClick={(e) => pickPiece(i, e.shiftKey || e.ctrlKey || e.metaKey)}>
+                    <span>{p.label || RIBBON_KINDS[p.kind].name}</span>
                     <small>{p.flip ? '⇄ ' : ''}{p.w != null || p.h != null ? '◆ ' : ''}{p.len} m</small>
                   </button>
                 </li>
@@ -944,6 +1175,57 @@ export default function App() {
                 </div>
               </div>
             ))}
+          </section>
+
+          <section>
+            <h2><span className="dot" style={{ background: COBALT }} /> Drawn ribbons</h2>
+            <p className="muted">Draw a new ribbon with the magic wand: click points on the ground, drag them until you are happy, then turn the line into a ribbon. It starts as one PATH piece you can split and turn into any kind.</p>
+            <div className="actions">
+              <button className="primary" onClick={() => startWand()}>✦ Draw a new ribbon</button>
+            </div>
+            {drawn.map((d) => {
+              const len = d.pieces.reduce((a, p) => a + p.len, 0)
+              const lineLen = routeCurve(d.route).getLength()
+              return (
+                <div key={d.id} className={'drawn' + (curId === d.id ? ' on' : '')}>
+                  <div className="drawn-head">
+                    <input className="drawn-name" key={d.id + d.name} defaultValue={d.name} aria-label="Name" onBlur={(e) => e.target.value.trim() && e.target.value !== d.name && setDrawn(d.id, { name: e.target.value.trim().slice(0, 60) })} onKeyDown={(e) => e.key === 'Enter' && e.target.blur()} />
+                    <small>{lineLen.toFixed(1)} m · {d.route.length} points</small>
+                  </div>
+                  <div className="sizes">
+                    <label>
+                      <span>Width</span>
+                      <input key={d.id + d.width} type="number" min="0.6" max="12" step="0.2" defaultValue={d.width} onBlur={(e) => +e.target.value >= 0.6 && +e.target.value !== d.width && setDrawn(d.id, { width: Math.min(12, Math.round(+e.target.value * 10) / 10) })} onKeyDown={(e) => e.key === 'Enter' && e.target.blur()} />
+                      <small>m</small>
+                    </label>
+                  </div>
+                  <ol className="pieces">
+                    {d.pieces.map((p, i) => (
+                      <li key={i}>
+                        <button className={curId === d.id && chosenList.includes(i) ? 'on' : ''} onClick={(e) => pickPiece(i, e.shiftKey || e.ctrlKey || e.metaKey, d.id)}>
+                          <span>{p.label || RIBBON_KINDS[p.kind].name}</span>
+                          <small>{p.flip ? '⇄ ' : ''}{p.w != null || p.h != null ? '◆ ' : ''}{p.len} m</small>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                  <p className="muted small">{len.toFixed(1)} m of pieces on a line of {lineLen.toFixed(1)} m{len < lineLen - 0.5 ? '; the rest lies flat as path' : len > lineLen + 0.5 ? '; pieces past the end are cut off' : ''}.</p>
+                  <div className="actions">
+                    <button onClick={() => startWand(d)} title="Move, add or take out points of its line">✦ Change the line</button>
+                    <button onClick={() => setDrawn(d.id, { pieces: [...d.pieces, { kind: 'bench', len: 4 }] })}>Add a piece at the end</button>
+                    <button
+                      className="danger"
+                      onClick={() => {
+                        setPlan((p) => ({ ...p, drawn: (p.drawn ?? []).filter((x) => x.id !== d.id) }))
+                        setNote(`${d.name} deleted. Undo brings it back.`)
+                      }}
+                    >
+                      Delete ribbon
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
           </section>
 
           <section>
@@ -1075,8 +1357,8 @@ export default function App() {
               </div>
             </div>
             <label className="check">
-              <input type="checkbox" checked={pic.labels && labels !== 'off'} disabled={labels === 'off'} onChange={(e) => setPic((p) => ({ ...p, labels: e.target.checked }))} />
-              {labels === 'off' ? 'Labels are off (turn them on at the top to include them)' : 'Include the labels'}
+              <input type="checkbox" checked={pic.labels && anyLabels} disabled={!anyLabels} onChange={(e) => setPic((p) => ({ ...p, labels: e.target.checked }))} />
+              {!anyLabels ? 'Labels are off (turn them on under Labels at the top)' : 'Include the labels'}
             </label>
             <div className="actions">
               <button className="primary" disabled={shooting} onClick={takePicture}>

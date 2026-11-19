@@ -515,7 +515,7 @@ export function cleanRibbon(r) {
   if (!r || !Array.isArray(r.pieces) || r.v !== VERSION) return DEFAULT_RIBBON
   const pieces = r.pieces
     .filter((p) => p && RIBBON_KINDS[p.kind])
-    .map((p) => ({ kind: p.kind, len: Math.max(RIBBON_KINDS[p.kind].min, Math.round((+p.len || 0) * 10) / 10), ...(p.flip ? { flip: true } : {}), ...cleanSize(p) }))
+    .map((p) => ({ kind: p.kind, len: Math.max(RIBBON_KINDS[p.kind].min, Math.round((+p.len || 0) * 10) / 10), ...(p.flip ? { flip: true } : {}), ...cleanSize(p), ...(p.label ? { label: String(p.label).slice(0, 60) } : {}) }))
   const width = +r.width >= 0.6 && +r.width <= 8 ? +r.width : DEFAULT_WIDTH
   return { v: VERSION, on: r.on !== false, width, pieces: pieces.length ? pieces : DEFAULT_PIECES }
 }

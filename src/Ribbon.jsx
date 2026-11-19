@@ -6,7 +6,7 @@ const BASE = new THREE.Color(COBALT)
 const PICKED = new THREE.Color('#5b9bff') // a lighter, brighter blue for the piece you picked
 
 // The cobalt ribbon. Click it to pick the piece under the pointer.
-export default function Ribbon({ built, chosen, onPickPiece, connecting }) {
+export default function Ribbon({ built, chosen, onPickPiece, connecting, layer = 'Ribbon' }) {
   const { geo, piece, parts } = built
   // names for the Rhino file: each piece is saved as its own object, e.g. "26 LOOKOUT"
   const names = useMemo(() => Object.fromEntries(parts.filter((p) => p.i >= 0).map((p) => [p.i, `${p.i + 1} ${RIBBON_KINDS[p.kind].name}${p.flip ? ' (flipped)' : ''}`])), [parts])
@@ -29,7 +29,7 @@ export default function Ribbon({ built, chosen, onPickPiece, connecting }) {
       geometry={geo}
       castShadow
       receiveShadow
-      userData={{ stack: true, layer: 'Ribbon', pieces: { piece, names, colour: COBALT } }}
+      userData={{ stack: true, layer, pieces: { piece, names, colour: COBALT } }}
       onClick={(e) => {
         if (connecting) return
         e.stopPropagation()
