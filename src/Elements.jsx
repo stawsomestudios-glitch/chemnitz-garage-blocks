@@ -246,6 +246,11 @@ export function ViewApi({ api }) {
       rc.setFromCamera(new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1), camera)
       return landing(scene, rc)
     },
+    // where the camera is and what it looks at, to save as a view
+    cameraNow() {
+      const r = (v) => [v.x, v.y, v.z].map((n) => Math.round(n * 100) / 100)
+      return { pos: r(camera.position), target: controls ? r(controls.target) : [0, 0, 0] }
+    },
     centre() {
       return controls ? [controls.target.x, -controls.target.z, 0] : [0, 0, 0]
     },

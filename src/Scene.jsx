@@ -286,6 +286,23 @@ function Camera({ view, pieces }) {
   const { camera, controls } = useThree()
   useEffect(() => {
     if (!controls || !view) return
+    // a saved view: back to exactly where the camera was and what it looked at
+    if (view.name === 'saved') {
+      const from = [camera.position.clone(), controls.target.clone()]
+      const to = [new THREE.Vector3(...view.pos), new THREE.Vector3(...view.target)]
+      const t0 = performance.now()
+      let raf
+      const step = () => {
+        const k = Math.min(1, (performance.now() - t0) / 500)
+        const e = k * k * (3 - 2 * k)
+        camera.position.lerpVectors(from[0], to[0], e)
+        controls.target.lerpVectors(from[1], to[1], e)
+        controls.update()
+        if (k < 1) raf = requestAnimationFrame(step)
+      }
+      step()
+      return () => cancelAnimationFrame(raf)
+    }
     // "Zoom to it": look at one ribbon piece from the south-west, close up
     const at = view.name === 'piece' ? pieces?.find((t) => t.i === view.i && t.rid === (view.rid ?? 'main'))?.p : null
     if (at) {

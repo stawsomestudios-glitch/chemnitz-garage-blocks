@@ -12,7 +12,7 @@ const BASE = import.meta.env.BASE_URL
 const KEY = 'chemnitz-garage-blocks-v1'
 const ALL = GARAGES.map((g) => g.id)
 const DEFAULT_MAP = { style: 'current', colours: {} }
-const EMPTY = { title: {}, block: {}, items: [], ribbon: DEFAULT_RIBBON, map: DEFAULT_MAP, glabel: {}, drawn: [], heading: { title: '', sub: '' } }
+const EMPTY = { title: {}, block: {}, items: [], ribbon: DEFAULT_RIBBON, map: DEFAULT_MAP, glabel: {}, drawn: [], heading: { title: '', sub: '' }, views: [] }
 // the map layers you can recolour, in the order the Map section lists them
 const MAP_LAYERS = [
   ['bg', 'Sky / background'], ['ground', 'Ground'], ['green', 'Green areas'], ['parking', 'Parking'], ['site', 'Garage yard'],
@@ -72,7 +72,12 @@ function clean(s) {
   const glabel = {}
   for (const id of ALL) if (s.glabel?.[id]) glabel[id] = String(s.glabel[id]).slice(0, 60)
   const heading = { title: String(s.heading?.title ?? '').slice(0, 80), sub: String(s.heading?.sub ?? '').slice(0, 300) }
-  return { title, block, items, ribbon: cleanRibbon(s.ribbon), map: cleanMap(s.map), glabel, drawn: cleanDrawn(s.drawn), heading }
+  // saved views: { id, name, pos: camera [x, y, z], target: the point it looks at [x, y, z] }
+  const three = (v) => Array.isArray(v) && v.length === 3 && v.every((n) => Number.isFinite(+n))
+  const views = (Array.isArray(s.views) ? s.views : [])
+    .filter((v) => v && three(v.pos) && three(v.target))
+    .map((v, n) => ({ id: String(v.id ?? 'v' + n), name: String(v.name ?? 'View ' + (n + 1)).slice(0, 60), pos: v.pos.map(Number), target: v.target.map(Number) }))
+  return { title, block, items, ribbon: cleanRibbon(s.ribbon), map: cleanMap(s.map), glabel, drawn: cleanDrawn(s.drawn), heading, views }
 }
 // The ribbons you drew with the magic wand: { id, name, route: [[east, north], …], width, pieces }
 function cleanDrawn(list) {
@@ -210,6 +215,8 @@ export default function App() {
   }, [show])
   const anyLabels = show.garages !== 'off' || show.ribbon !== 'off' || show.elements
   const [labelMenu, setLabelMenu] = useState(false)
+  const [viewMenu, setViewMenu] = useState(false)
+  const [renaming, setRenaming] = useState(null) // the saved view whose name you are changing
   const [wand, setWand] = useState(null) // the magic wand: { pts, id (when changing a drawn ribbon's line), width }
   const [view, setView] = useState(null)
   const [note, setNote] = useState(null)
@@ -625,6 +632,31 @@ export default function App() {
     const t = prompt(`Label (leave it empty for the usual one: ${edit.usual})`, edit.text)
     if (t !== null) setLabel(edit, t)
   }
+  // ----- saved views -----
+  const views = plan.views ?? []
+  const saveView = (name) => {
+    const cam = api.current?.cameraNow()
+    if (!cam) return
+    let n = views.length + 1
+    while (views.some((v) => v.name === 'View ' + n)) n++
+    const v = { id: newId(), name: (name ?? '').trim().slice(0, 60) || 'View ' + n, ...cam }
+    setPlan((p) => ({ ...p, views: [...(p.views ?? []), v] }))
+    setNote(`Saved “${v.name}”. Open ★ Views to come back to it${views.length < 9 ? `, or press ${views.length + 1}` : ''}.`)
+  }
+  const goView = (v) => {
+    setView({ name: 'saved', pos: v.pos, target: v.target, t: Date.now() })
+    setNote(`View: ${v.name}`)
+  }
+  const changeView = (id, change) => setPlan((p) => ({ ...p, views: (p.views ?? []).map((v) => (v.id === id ? { ...v, ...change } : v)) }))
+  const moveView = (id, d) =>
+    setPlan((p) => {
+      const list = [...(p.views ?? [])]
+      const i = list.findIndex((v) => v.id === id)
+      const j = i + d
+      if (i < 0 || j < 0 || j >= list.length) return p
+      ;[list[i], list[j]] = [list[j], list[i]]
+      return { ...p, views: list }
+    })
   const glabel = plan.glabel ?? {}
   const heading = plan.heading ?? { title: '', sub: '' }
   useEffect(() => {
@@ -659,6 +691,7 @@ export default function App() {
       if ((e.key === 'f' || e.key === 'F') && piece) editPiece(chosen, { flip: !piece.flip })
       if ((e.key === 'f' || e.key === 'F') && chosenList.length > 1) editPieces(chosenList, { flip: !chosenPieces.every((p) => p.flip) })
       if ((e.key === 'f' || e.key === 'F') && selModule) editModule({ flip: !selModule.flip })
+      if (/^[1-9]$/.test(e.key) && views[+e.key - 1]) goView(views[+e.key - 1])
       if (e.key === 'l' || e.key === 'L') lock()
       if (e.key === 'u' || e.key === 'U') unlock()
       if ((e.key === 'Delete' || e.key === 'Backspace') && selItems.length) removeItems()
@@ -821,6 +854,71 @@ export default function App() {
             <button onClick={() => setView({ name: 'home', t: Date.now() })}>3D</button>
             <button onClick={() => setView({ name: 'plan', t: Date.now() })}>Plan</button>
             <button onClick={() => setView({ name: 'ribbon', t: Date.now() })}>Ribbon</button>
+          </div>
+          <div className="pop-wrap">
+            <div className="seg-group" role="group" aria-label="Saved views">
+              <button className={viewMenu ? 'on' : ''} onClick={() => setViewMenu(!viewMenu)} aria-expanded={viewMenu} title="Save this view, or go back to one you saved">★ Views{views.length ? ` (${views.length})` : ''} ▾</button>
+            </div>
+            {viewMenu && (
+              <div className="label-pop view-pop" role="dialog" aria-label="Saved views">
+                <form
+                  className="view-save"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    saveView(e.target.elements.vname.value)
+                    e.target.reset()
+                  }}
+                >
+                  <input name="vname" placeholder={`Name, e.g. “Yard from the lookout”`} aria-label="Name of the view" />
+                  <button className="primary" type="submit">Save this view</button>
+                </form>
+                {views.length === 0 ? (
+                  <p className="muted small">No saved views yet. Turn and zoom the model to a view you like, then save it here. It is kept with your plan.</p>
+                ) : (
+                  <ol className="view-list">
+                    {views.map((v, i) => (
+                      <li key={v.id}>
+                        <button className="view-go" onClick={() => goView(v)} title={`Go to this view${i < 9 ? ` (key ${i + 1})` : ''}`}>
+                          <span className="view-key">{i < 9 ? i + 1 : '·'}</span>
+                          {renaming === v.id ? (
+                            <input
+                              className="view-name"
+                              autoFocus
+                              defaultValue={v.name}
+                              aria-label="Name"
+                              onFocus={(e) => e.target.select()}
+                              onClick={(e) => e.stopPropagation()}
+                              onBlur={(e) => {
+                                if (e.target.value.trim() && e.target.value !== v.name) changeView(v.id, { name: e.target.value.trim().slice(0, 60) })
+                                setRenaming(null)
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === 'Escape') e.target.blur()
+                                e.stopPropagation()
+                              }}
+                            />
+                          ) : (
+                            <span className="view-name" onDoubleClick={(e) => (e.stopPropagation(), setRenaming(v.id))}>{v.name}</span>
+                          )}
+                        </button>
+                        <button className="cf-btn" title="Rename" onClick={() => setRenaming(v.id)}>✎</button>
+                        <button className="cf-btn" title="Save the camera as it is now into this view" onClick={() => {
+                          const cam = api.current?.cameraNow()
+                          if (cam) {
+                            changeView(v.id, cam)
+                            setNote(`“${v.name}” now shows this view.`)
+                          }
+                        }}>⟳</button>
+                        <button className="cf-btn" disabled={i === 0} title="Move up" onClick={() => moveView(v.id, -1)}>↑</button>
+                        <button className="cf-btn" disabled={i === views.length - 1} title="Move down" onClick={() => moveView(v.id, 1)}>↓</button>
+                        <button className="cf-btn danger" title="Delete this view" onClick={() => setPlan((p) => ({ ...p, views: (p.views ?? []).filter((x) => x.id !== v.id) }))}>✕</button>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                <p className="muted small">Click a view to go there. ✎ or a double-click renames it. ⟳ saves where you are now into that view. Keys 1–9 jump to the first nine.</p>
+              </div>
+            )}
           </div>
           <div className="seg-group" role="group" aria-label="Magic wand">
             <button className={wand ? 'on' : ''} onClick={() => (wand ? setWand(null) : startWand())} title="Draw a line on the ground and turn it into a ribbon">✦ Magic wand</button>
