@@ -4,7 +4,7 @@ import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { GARAGES, BY_ID, MODULE } from './garages.js'
-import { TITLE, EMPTY_COLOR } from './titles.js'
+import { TITLE } from './titles.js'
 import { CarGarage, ConnectDots, Elements, ViewApi } from './Elements.jsx'
 import { KINDS, dims } from './elements.js'
 import Ribbon from './Ribbon.jsx'
@@ -60,7 +60,7 @@ function ribbon(lines, width, y) {
 }
 
 // Streets, paths, green and the surrounding buildings. The mapped garages of the site are left out: our boxes replace them.
-function Context({ site }) {
+function Context({ site, look }) {
   const geo = useMemo(() => {
     const build = (test) => {
       const list = site.buildings.filter(test).map((b) => prism(b.p, b.h))
@@ -84,28 +84,33 @@ function Context({ site }) {
       tram: ribbon(by('tram'), 1.6, -0.06),
     }
   }, [site])
+  // flat styles (Nolli) show the map as a printed plan: pure colours, no light and shade
   const m = (g, color, double, layer) =>
     g && (
-      <mesh geometry={g} receiveShadow castShadow={double === 'cast'} userData={{ layer: `Context - ${layer}` }}>
-        <meshStandardMaterial color={color} side={double === true ? THREE.DoubleSide : THREE.FrontSide} />
+      <mesh geometry={g} receiveShadow castShadow={double === 'cast' && look.shadows} userData={{ layer: `Context - ${layer}` }}>
+        {look.flat ? (
+          <meshBasicMaterial color={color} toneMapped={false} side={double === true ? THREE.DoubleSide : THREE.FrontSide} />
+        ) : (
+          <meshStandardMaterial color={color} side={double === true ? THREE.DoubleSide : THREE.FrontSide} />
+        )}
       </mesh>
     )
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.2, 0]} receiveShadow userData={{ layer: 'Context - ground' }}>
         <planeGeometry args={[1400, 1400]} />
-        <meshStandardMaterial color="#e8e5dc" />
+        {look.flat ? <meshBasicMaterial color={look.ground} toneMapped={false} /> : <meshStandardMaterial color={look.ground} />}
       </mesh>
-      {m(geo.green, '#c4d4a8', false, 'green')}
-      {m(geo.parking, '#d2d0ca', false, 'parking')}
-      {m(geo.site, '#d9d3c3', false, 'garage site')}
-      {m(geo.road, '#b1b0ac', true, 'streets')}
-      {m(geo.lane, '#c6c3ba', true, 'lanes')}
-      {m(geo.path, '#f1eee6', true, 'footpaths')}
-      {m(geo.tram, '#b5484a', true, 'tram')}
-      {m(geo.home, '#f3f1ec', 'cast', 'homes')}
-      {m(geo.other, '#dfe2e5', 'cast', 'other buildings')}
-      {m(geo.garage, '#cfccc4', 'cast', 'other garages')}
+      {m(geo.green, look.green, false, 'green')}
+      {m(geo.parking, look.parking, false, 'parking')}
+      {m(geo.site, look.site, false, 'garage site')}
+      {m(geo.road, look.road, true, 'streets')}
+      {m(geo.lane, look.lane, true, 'lanes')}
+      {m(geo.path, look.path, true, 'footpaths')}
+      {m(geo.tram, look.tram, true, 'tram')}
+      {m(geo.home, look.home, 'cast', 'homes')}
+      {m(geo.other, look.other, 'cast', 'other buildings')}
+      {m(geo.garage, look.garage, 'cast', 'other garages')}
     </group>
   )
 }
@@ -130,8 +135,7 @@ function shapes(block) {
 
 // Solid garages, their doors, and see-through garages (titles marked `clear`) are three separate sets.
 // A garage the ribbon runs through: cleared inside, so only its roof and the outer walls the ribbon doesn't pass stay.
-const SHELL = '#ddd7cb'
-function Passages({ pass }) {
+function Passages({ pass, look }) {
   const parts = useMemo(() => {
     const out = []
     const t = 0.15
@@ -155,13 +159,13 @@ function Passages({ pass }) {
       {q.roof ? (
         <meshStandardMaterial color="#cfe0f0" transparent opacity={0.35} depthWrite={false} roughness={0.1} />
       ) : (
-        <meshStandardMaterial color={SHELL} roughness={0.85} />
+        <meshStandardMaterial color={look.shell} roughness={0.85} />
       )}
     </mesh>
   ))
 }
 
-function Garages({ title, block, picked, onPick, connecting, pass }) {
+function Garages({ title, block, picked, onPick, connecting, pass, look }) {
   const body = useRef()
   const door = useRef()
   const glass = useRef()
@@ -192,7 +196,7 @@ function Garages({ title, block, picked, onPick, connecting, pass }) {
     }
     const colour = (g) => {
       const t = title[g.id]
-      tint.set(t ? TITLE[t].color : EMPTY_COLOR)
+      tint.set(t ? TITLE[t].color : look.empty)
       if (picked.has(g.id)) tint.lerp(PICK, 0.55)
     }
     const shape = (g, s) => {
@@ -212,7 +216,7 @@ function Garages({ title, block, picked, onPick, connecting, pass }) {
       dummy.rotation.set(0, g.angle, 0)
       dummy.scale.set(2.5, 2.4, 0.06)
     })
-  }, [placed, title, picked, lists])
+  }, [placed, title, picked, lists, look])
   const click = (list) => (e) => {
     if (connecting) return // let the click reach the connect dots
     e.stopPropagation()
@@ -346,7 +350,7 @@ function useItems({ title, block, picked, labels, items, tags, chosen, pass }) {
   }, [title, block, picked, labels, items, tags, chosen, pass])
 }
 
-export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget, ribbon, chosen, onPickPiece }) {
+export default function Scene({ site, title, block, picked, onPick, onClear, labels, view, items, onSelectItem, onMoveItem, onDropKind, snap, api, connect, onGrip, onTarget, ribbon, chosen, onPickPiece, look }) {
   const built = useMemo(() => (ribbon.on ? buildRibbon(ribbon) : null), [ribbon])
   const pass = ribbon.on ? passages() : null
   const tags = useItems({ title, block, picked, labels, items, tags: built?.tags ?? [], chosen, pass })
@@ -376,13 +380,13 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
           if (Math.hypot(e.clientX - down.current[0], e.clientY - down.current[1]) < 6) onClear()
         }}
       >
-        <color attach="background" args={['#eef3f5']} />
-        <hemisphereLight args={['#ffffff', '#c9c3b5', 1.15]} />
+        <color attach="background" args={[look.bg]} />
+        <hemisphereLight args={look.hemi} />
         <directionalLight
           position={[180, 260, 160]}
-          intensity={2.4}
-          color="#fff6e6"
-          castShadow
+          intensity={look.sun[1]}
+          color={look.sun[0]}
+          castShadow={look.shadows}
           shadow-mapSize={[4096, 4096]}
           shadow-camera-left={-150}
           shadow-camera-right={150}
@@ -392,9 +396,9 @@ export default function Scene({ site, title, block, picked, onPick, onClear, lab
           shadow-bias={-0.0006}
           shadow-normalBias={0.05}
         />
-        <Context site={site} />
-        <Garages title={title} block={block} picked={picked} onPick={onPick} connecting={!!connect} pass={pass} />
-        {pass && <Passages pass={pass} />}
+        <Context site={site} look={look} />
+        <Garages title={title} block={block} picked={picked} onPick={onPick} connecting={!!connect} pass={pass} look={look} />
+        {pass && <Passages pass={pass} look={look} />}
         {built && <Ribbon built={built} chosen={chosen} onPickPiece={onPickPiece} connecting={!!connect} />}
         <Elements items={items} picked={picked} onSelect={onSelectItem} onMove={onMoveItem} snap={snap} connecting={!!connect} />
         <ConnectDots connect={connect} items={items} onGrip={onGrip} onTarget={onTarget} />

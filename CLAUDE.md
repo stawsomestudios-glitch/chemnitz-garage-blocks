@@ -25,3 +25,5 @@ Undo / redo: every plan change goes through `setPlan` in `src/App.jsx` (`useHist
 Sizes: a ribbon piece or module can carry its own width `w` and top height `h` (`pieceShape`, `pieceWidth`, `cleanSize` in `src/ribbon.js`); without them it keeps its usual size, so the starting ribbon stays exactly the same. Kinds with a `height` (ONE-WAY STAIRS, the three WALL kinds) draw themselves at that height; the others are stretched. Several pieces can be picked at once (Shift-click; `chosenList` in `src/App.jsx`).
 
 Picture (top bar and Picture section): `capture()` in `ViewApi` (`src/Elements.jsx`) draws the view again at 1–4x the screen size and copies the HTML labels onto it; `takePicture` in `src/App.jsx` hides the selection, saves PNG or JPG.
+
+Map styles: `src/mapStyles.js` (colours of every map layer, sky, light, shadows per style). Your own colours per style are kept in the plan (`plan.map`), and an element can carry its own colour `col`. Colour boxes (picker, code as #RRGGBB or R,G,B, palette, pipette) are `src/ColourField.jsx`. Elements are listed in groups (`ELEMENT_GROUPS` in `src/elements.js`).

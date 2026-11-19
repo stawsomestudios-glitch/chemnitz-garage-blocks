@@ -122,3 +122,21 @@ h2 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; 
 .kind-group h3 { margin: 8px 0 3px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .piece .actions button.on { background: #0047ab; color: #fff; border-color: #0047ab; }
 .sub { font-size: 13px; margin: 16px 0 4px; padding-top: 12px; border-top: 1px dashed var(--line); }
+
+/* colour boxes: picker swatch, code, palette, pipette, reset */
+.colour-field { margin: 0 0 5px; }
+.cf-row { display: grid; grid-template-columns: 1fr 30px 84px 26px 26px 26px; gap: 4px; align-items: center; }
+.cf-label { font-size: 12.5px; }
+.cf-row input[type='color'] { width: 30px; height: 26px; padding: 1px; border: 1px solid var(--line); border-radius: 6px; background: #fff; cursor: pointer; }
+.cf-code { font: inherit; font-size: 12px; font-family: ui-monospace, Consolas, monospace; width: 100%; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.cf-code.bad { border-color: #c0392b; outline: 1px solid #c0392b; }
+.cf-btn { width: 26px; height: 26px; padding: 0; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 13px; }
+.cf-btn.on { border-color: var(--ink); }
+.cf-btn.ghost { border: 0; background: none; }
+.cf-grid { width: 12px; height: 12px; background: conic-gradient(#e30613 0 25%, #f2c200 0 50%, #6f9a4c 0 75%, #0047ab 0); border-radius: 2px; }
+.cf-bad { margin: 2px 0 0; font-size: 11px; color: #c0392b; }
+.cf-palette { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; margin: 5px 0 8px; }
+.cf-palette button { aspect-ratio: 1; padding: 0; border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 4px; }
+.cf-palette button.on { outline: 2px solid var(--ink); outline-offset: 1px; }
+.seg-group select { border: 0; background: none; font: inherit; font-size: 13px; font-weight: 600; padding: 7px 8px; cursor: pointer; }
+.map-styles { grid-template-columns: 1fr 1fr; }

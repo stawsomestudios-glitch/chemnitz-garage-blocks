@@ -11,7 +11,7 @@ function Module({ it, picked }) {
   useEffect(() => () => geo.dispose(), [geo])
   return (
     <mesh geometry={geo} castShadow receiveShadow userData={{ stack: true, item: it.id, name: `${RIBBON_KINDS[it.rk].name} module${it.flip ? ' (flipped)' : ''}` }}>
-      <meshStandardMaterial color={picked ? '#5b9bff' : COBALT} roughness={0.75} side={THREE.DoubleSide} />
+      <meshStandardMaterial color={picked ? '#5b9bff' : (it.col ?? COBALT)} roughness={0.75} side={THREE.DoubleSide} />
     </mesh>
   )
 }
@@ -49,6 +49,7 @@ export function Parts({ parts, item }) {
 }
 
 export function colourOf(it) {
+  if (it.col) return it.col // a colour you chose yourself
   if (it.title && TITLE[it.title]) return TITLE[it.title].color
   return KINDS[it.kind].colour ?? carColour(it.id)
 }

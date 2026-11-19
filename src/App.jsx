@@ -2,13 +2,37 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Scene from './Scene.jsx'
 import { GARAGES, BY_ID, ROW_IDS, connected, label } from './garages.js'
 import { TITLES, TITLE } from './titles.js'
-import { KINDS, KIND_IDS, alignRot, dims, placeByGrip, snapPoint } from './elements.js'
+import { ELEMENT_GROUPS, KINDS, alignRot, dims, placeByGrip, snapPoint } from './elements.js'
+import { MAP_STYLES, MAP_STYLE_IDS } from './mapStyles.js'
+import ColourField, { parseColour } from './ColourField.jsx'
+import { colourOf } from './Elements.jsx'
 import { COBALT, DEFAULT_RIBBON, RIBBON_GROUPS, RIBBON_KINDS, STREETS, cleanRibbon, cleanSize, hasHeight, moduleLen, pieceTop, pieceWidth, routeCurve } from './ribbon.js'
 
 const BASE = import.meta.env.BASE_URL
 const KEY = 'chemnitz-garage-blocks-v1'
 const ALL = GARAGES.map((g) => g.id)
-const EMPTY = { title: {}, block: {}, items: [], ribbon: DEFAULT_RIBBON }
+const DEFAULT_MAP = { style: 'current', colours: {} }
+const EMPTY = { title: {}, block: {}, items: [], ribbon: DEFAULT_RIBBON, map: DEFAULT_MAP }
+// the map layers you can recolour, in the order the Map section lists them
+const MAP_LAYERS = [
+  ['bg', 'Sky / background'], ['ground', 'Ground'], ['green', 'Green areas'], ['parking', 'Parking'], ['site', 'Garage yard'],
+  ['road', 'Streets'], ['lane', 'Lanes'], ['path', 'Footpaths'], ['tram', 'Tram lines'],
+  ['home', 'Homes'], ['other', 'Other buildings'], ['garage', 'Garages outside the site'], ['empty', 'Garages without a title'], ['shell', 'Garages cleared for the ribbon'],
+]
+// the map style and your own colours for each style: { style, colours: { style: { layer: '#rrggbb' } } }
+function cleanMap(m) {
+  const style = MAP_STYLES[m?.style] ? m.style : 'current'
+  const colours = {}
+  for (const id of MAP_STYLE_IDS) {
+    const own = {}
+    for (const [k] of MAP_LAYERS) {
+      const c = m?.colours?.[id]?.[k] && parseColour(m.colours[id][k])
+      if (c) own[k] = c
+    }
+    if (Object.keys(own).length) colours[id] = own
+  }
+  return { style, colours }
+}
 const newId = () => 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 
 // Your plan is kept in this browser so it is still there next time.
@@ -33,6 +57,7 @@ function clean(s) {
       const out = { id: String(it.id ?? newId()), kind: it.kind, x: num(it.x), y: num(it.y), z: num(it.z), rot: num(it.rot) }
       if (TITLE[it.title] && KINDS[it.kind].titled) out.title = it.title
       for (const k of ['sw', 'sd', 'sh']) if (+it[k] > 0) out[k] = +it[k]
+      if (it.col && parseColour(it.col)) out.col = parseColour(it.col)
       if (it.kind === 'rmod') {
         const rk = RIBBON_KINDS[it.rk] && !RIBBON_KINDS[it.rk].gap ? it.rk : 'bench'
         out.rk = rk
@@ -43,7 +68,7 @@ function clean(s) {
       }
       return out
     })
-  return { title, block, items, ribbon: cleanRibbon(s.ribbon) }
+  return { title, block, items, ribbon: cleanRibbon(s.ribbon), map: cleanMap(s.map) }
 }
 // Every change to the plan goes through here, so it can be undone and redone (up to 100 steps).
 // Changes with the same key in quick succession (one drag) count as one step.
@@ -129,6 +154,39 @@ export default function App() {
   const file = useRef()
   const api = useRef(null)
   const { title, block, items, ribbon } = plan
+  const map = plan.map ?? DEFAULT_MAP
+  // the map as it looks now: the style's colours, with any you changed yourself on top
+  const look = useMemo(() => ({ ...MAP_STYLES[map.style], ...(map.colours[map.style] ?? {}) }), [map])
+  const own = map.colours[map.style] ?? {}
+  const setMapStyle = (style) => setPlan((p) => ({ ...p, map: { ...(p.map ?? DEFAULT_MAP), style } }))
+  // a colour picker sends many changes while you drag it; they count as one step for undo
+  const setMapColour = (k, c) =>
+    setPlan((p) => {
+      const m = p.map ?? DEFAULT_MAP
+      const mine = { ...(m.colours[m.style] ?? {}) }
+      if (c) mine[k] = c
+      else delete mine[k]
+      return { ...p, map: { ...m, colours: { ...m.colours, [m.style]: mine } } }
+    }, 'mapcol:' + k)
+  const resetMapColours = () =>
+    setPlan((p) => {
+      const m = p.map ?? DEFAULT_MAP
+      const { [m.style]: _, ...rest } = m.colours
+      return { ...p, map: { ...m, colours: rest } }
+    })
+  const setItemColour = (c) =>
+    setPlan(
+      (p) => ({
+        ...p,
+        items: p.items.map((it) => {
+          if (!picked.has(it.id)) return it
+          if (c) return { ...it, col: c }
+          const { col, ...rest } = it
+          return rest
+        }),
+      }),
+      'itemcol',
+    )
 
   useEffect(() => {
     fetch(`${BASE}data/site.json`)
@@ -569,7 +627,7 @@ export default function App() {
           }} labels={labels} view={view}
           items={items} onSelectItem={pick} onMoveItem={moveItem} onDropKind={addItem} snap={snap} api={api}
           connect={connect} onGrip={onGrip} onTarget={onTarget}
-          ribbon={ribbon} chosen={chosenList} onPickPiece={pickPiece}
+          ribbon={ribbon} chosen={chosenList} onPickPiece={pickPiece} look={look}
         />
         {connect && (
           <div className="connect-bar" role="status">
@@ -600,6 +658,11 @@ export default function App() {
             <button onClick={() => setView({ name: 'home', t: Date.now() })}>3D</button>
             <button onClick={() => setView({ name: 'plan', t: Date.now() })}>Plan</button>
             <button onClick={() => setView({ name: 'ribbon', t: Date.now() })}>Ribbon</button>
+          </div>
+          <div className="seg-group" role="group" aria-label="Map style">
+            <select value={map.style} onChange={(e) => setMapStyle(e.target.value)} title="Map style (change its colours in the Map section)">
+              {MAP_STYLE_IDS.map((id) => <option key={id} value={id}>Map: {MAP_STYLES[id].name}</option>)}
+            </select>
           </div>
           <div className="seg-group" role="group" aria-label="Picture">
             <button disabled={shooting} onClick={takePicture} title={`Save a picture of this view (${pic.format.toUpperCase()}, ${pic.scale === 1 ? 'screen size' : pic.scale + '× the screen'}); change the settings under Picture in the panel`}>
@@ -657,6 +720,15 @@ export default function App() {
                   <button onClick={resetSize}>Normal size</button>
                 </div>
               </div>
+            )}
+            {selItems.length > 0 && (
+              <ColourField
+                label={selItems.length > 1 ? 'Colour of all ' + selItems.length : 'Colour'}
+                value={colourOf(selItems[0])}
+                changed={selItems.some((it) => it.col)}
+                onChange={setItemColour}
+                onReset={() => setItemColour(null)}
+              />
             )}
             {selItems.length > 0 && (
               <div className="actions element-actions">
@@ -891,8 +963,11 @@ export default function App() {
           <section>
             <h2>Add elements</h2>
             <p className="muted">Drag one onto the model, or click it to drop it in the middle of the view. Drop onto a roof to stack. Add as many as you like.</p>
+            {ELEMENT_GROUPS.map(([group, kinds]) => (
+            <div key={group} className="kind-group">
+            <h3>{group}</h3>
             <div className="palette">
-              {KIND_IDS.map((k) => (
+              {kinds.map((k) => (
                 <button
                   key={k}
                   draggable
@@ -908,6 +983,9 @@ export default function App() {
                 </button>
               ))}
             </div>
+            </div>
+            ))}
+            <p className="muted small">Select an element to give it your own colour.</p>
             <div className="snaprow">
               <span>Snap when dragging</span>
               <div className="seg-group small-seg" role="group" aria-label="Snap">
@@ -953,6 +1031,28 @@ export default function App() {
                 <tr className="zero"><td><span className="dot empty" />No title yet</td><td>{115 - assigned}</td><td></td></tr>
               </tbody>
             </table>
+          </section>
+
+          <section>
+            <h2>Map</h2>
+            <p className="muted">How the base map looks. Titled garages keep their title colours and the ribbon stays cobalt. The Rhino download and pictures use these colours too.</p>
+            <div className="titles map-styles">
+              {MAP_STYLE_IDS.map((id) => (
+                <button key={id} className={map.style === id ? 'on' : ''} onClick={() => setMapStyle(id)} title={MAP_STYLES[id].note}>
+                  <span className="dot" style={{ background: 'linear-gradient(135deg, ' + MAP_STYLES[id].green + ' 0 33%, ' + MAP_STYLES[id].ground + ' 33% 66%, ' + MAP_STYLES[id].home + ' 66%)', border: '1px solid rgba(0,0,0,.25)' }} />
+                  {MAP_STYLES[id].name}
+                </button>
+              ))}
+            </div>
+            <p className="muted small">{MAP_STYLES[map.style].note}</p>
+            <h3 className="sub">Colours of {MAP_STYLES[map.style].name}</h3>
+            <p className="muted small">Click a swatch for the colour picker, type a code (#0047AB or true colour 0,71,171), open the palette, or pick a colour from the screen. Each style keeps its own changes.</p>
+            {MAP_LAYERS.map(([k, label]) => (
+              <ColourField key={map.style + k} label={label} value={look[k]} changed={!!own[k]} onChange={(c) => setMapColour(k, c)} onReset={() => setMapColour(k, null)} />
+            ))}
+            <div className="actions">
+              <button disabled={!Object.keys(own).length} onClick={resetMapColours}>Reset the colours of {MAP_STYLES[map.style].name}</button>
+            </div>
           </section>
 
           <section>

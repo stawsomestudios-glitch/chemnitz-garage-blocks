@@ -103,9 +103,120 @@ export const KINDS = {
     name: 'Ramp to roof', size: '1.5 × 9, 3 up', w: 1.5, d: 9, colour: '#b9b2a6',
     parts: (c) => [box([0, 1.4, 0], [1.5, 0.2, Math.hypot(9, 2.8)], c, { r: [Math.atan2(2.8, 9), 0, 0] }), box([0, 2.9, -4.5 + 0.3], [1.5, 0.2, 0.6], c)],
   },
+
+  // ----- transport -----
+  tram: {
+    name: 'Tram', size: '31.5 × 2.65, 5 sections', w: 2.65, d: 31.5, colour: '#ece6d6',
+    parts: (c) => {
+      const out = []
+      const n = 5
+      const L = 31.5
+      const g = 0.3
+      const sl = (L - (n - 1) * g) / n
+      for (let i = 0; i < n; i++) {
+        const z = -L / 2 + sl / 2 + i * (sl + g)
+        out.push(box([0, 1.85, z], [2.65, 3.0, sl], c, { stack: true })) // body, 35 cm off the rails
+        out.push(box([0, 2.3, z], [2.67, 1.0, sl - 0.8], '#2c3742', { rough: 0.2 })) // windows
+        out.push(box([0, 0.65, z], [2.67, 0.2, sl], '#b8322f')) // a band along the bottom
+        out.push(box([0, 0.2, z], [2.1, 0.4, sl * 0.55], '#26292c')) // wheels and floor
+        if (i < n - 1) out.push(box([0, 1.85, z + sl / 2 + g / 2], [2.3, 2.7, g], '#3b3d40')) // the joint
+        if (i % 2 === 1) out.push(box([0, 3.5, z], [1.6, 0.3, sl * 0.5], '#9aa0a6')) // roof units
+      }
+      out.push(box([0, 2.3, L / 2 + 0.01], [2.4, 1.3, 0.04], '#2c3742', { rough: 0.2 }), box([0, 2.3, -L / 2 - 0.01], [2.4, 1.3, 0.04], '#2c3742', { rough: 0.2 }))
+      out.push(box([0, 3.75, 0], [0.1, 0.5, 0.1], '#3b3d40'), box([0, 4.0, 0], [1.5, 0.05, 0.3], '#3b3d40')) // pantograph
+      return out
+    },
+  },
+  tramtrack: {
+    name: 'Tram track', size: '3 × 12', w: 3, d: 12, colour: '#8d8a84',
+    parts: (c) => [box([0, 0.02, 0], [3, 0.04, 12], c, { stack: true }), box([-0.7175, 0.065, 0], [0.07, 0.05, 12], '#5d6166'), box([0.7175, 0.065, 0], [0.07, 0.05, 12], '#5d6166')],
+  },
+  tramstop: {
+    name: 'Tram stop', size: '6 × 2.2, with shelter', w: 6, d: 2.2, colour: '#4a4d52',
+    parts: (c) => [
+      box([0, 0.125, 0], [6, 0.25, 2.2], '#c9c4b8', { stack: true }), // platform
+      ...[[-1.9, -0.8], [1.9, -0.8], [-1.9, 0.6], [1.9, 0.6]].map(([x, z]) => cyl([x, 1.4, z], [0.08, 2.3, 0.08], c)),
+      box([0, 2.6, -0.1], [4.2, 0.1, 1.8], c), // roof
+      box([0, 1.45, -0.85], [3.8, 2.2, 0.03], '#bcd3df', { o: 0.4 }), // glass back
+      box([0, 0.7, -0.6], [2.4, 0.05, 0.4], '#a07a52'), // bench
+      cyl([2.6, 1.6, 0.8], [0.07, 2.7, 0.07], '#7a7f85'), // stop sign: a green ring around a yellow disc
+      cyl([2.6, 2.75, 0.8], [0.5, 0.03, 0.5], '#1f8a3c', { r: [PI / 2, 0, 0] }),
+      cyl([2.6, 2.75, 0.82], [0.4, 0.03, 0.4], '#f2c200', { r: [PI / 2, 0, 0] }),
+    ],
+  },
+  bus: {
+    name: 'Bus', size: '12 × 2.55', w: 2.55, d: 12, colour: '#e9e6df',
+    parts: (c) => [
+      box([0, 1.7, 0], [2.55, 2.8, 12], c, { stack: true }),
+      box([0, 2.1, 0], [2.57, 1.1, 11.2], '#2c3742', { rough: 0.2 }),
+      box([0, 0.55, 0], [2.57, 0.2, 12], '#2f5fa8'),
+      ...[[-1.1, 4.2], [1.1, 4.2], [-1.1, -3.4], [1.1, -3.4]].map(([x, z]) => cyl([x, 0.5, z], [1.0, 0.3, 1.0], '#1d1f22', { r: [0, 0, PI / 2] })),
+    ],
+  },
+
+  // ----- landscape -----
+  pine: { name: 'Conifer', size: 'Ø 3, 7 high', w: 3, d: 3, colour: '#4f7a4a', parts: (c) => [cyl([0, 0.75, 0], [0.3, 1.5, 0.3], '#7a5b3e'), { g: 'cone', p: [0, 4.25, 0], s: [3, 5.5, 3], c }] },
+  smalltree: {
+    name: 'Small tree', size: 'Ø 2.5', w: 2.5, d: 2.5, colour: '#93b56a',
+    parts: (c) => [cyl([0, 1, 0], [0.16, 2, 0.16], '#7a5b3e'), { g: 'ball', p: [0, 2.8, 0], s: [2.5, 2.2, 2.5], c }],
+  },
+  bush: { name: 'Bush', size: 'Ø 1.6', w: 1.6, d: 1.6, colour: '#6f9a4c', parts: (c) => [{ g: 'ball', p: [0, 0.6, 0], s: [1.6, 1.2, 1.6], c }] },
+  hedge: { name: 'Hedge', size: '3 × 0.8, 1.2 high', w: 3, d: 0.8, colour: '#5f8a43', parts: (c) => [box([0, 0.6, 0], [3, 1.2, 0.8], c)] },
+  flowers: {
+    name: 'Flower bed', size: '3 × 1', w: 3, d: 1, colour: '#e2738a',
+    parts: (c) => [
+      box([0, 0.15, 0], [3, 0.3, 1], '#8a6a4a'),
+      ...[-1.2, -0.6, 0, 0.6, 1.2].flatMap((x, i) => [{ g: 'ball', p: [x, 0.42, 0.2], s: [0.45, 0.3, 0.45], c: i % 2 ? '#f2c94c' : c }, { g: 'ball', p: [x + 0.3, 0.42, -0.2], s: [0.45, 0.3, 0.45], c: i % 2 ? c : '#9b6fd0' }]),
+    ],
+  },
+  lawn: { name: 'Grass patch', size: '6 × 6', w: 6, d: 6, colour: '#8fb866', parts: (c) => [box([0, 0.02, 0], [6, 0.04, 6], c, { stack: true })] },
+  paving: { name: 'Paving', size: '6 × 6', w: 6, d: 6, colour: '#cdc6b8', parts: (c) => [box([0, 0.02, 0], [6, 0.04, 6], c, { stack: true })] },
+  pond: { name: 'Water', size: '6 × 4', w: 6, d: 4, colour: '#7fb0d8', parts: (c) => [box([0, 0.02, 0], [6, 0.04, 4], c, { rough: 0.1 })] },
+  boulder: { name: 'Boulder', size: '1.2 × 1', w: 1.2, d: 1, colour: '#9a968e', parts: (c) => [{ g: 'ball', p: [0, 0.3, 0], s: [1.2, 0.8, 1.0], c, r: [0.2, 0.5, 0.1] }] },
+
+  // ----- street furniture -----
+  bollard: { name: 'Bollard', size: 'Ø 0.15, 0.9 high', w: 0.15, d: 0.15, colour: '#3b3d40', parts: (c) => [cyl([0, 0.45, 0], [0.15, 0.9, 0.15], c)] },
+  bikerack: {
+    name: 'Bike rack', size: '3 hoops, 2 long', w: 2, d: 0.8, colour: '#7a7f85',
+    parts: (c) => [-0.8, 0, 0.8].flatMap((x) => [box([x, 0.42, -0.35], [0.05, 0.85, 0.05], c), box([x, 0.42, 0.35], [0.05, 0.85, 0.05], c), box([x, 0.85, 0], [0.05, 0.05, 0.75], c)]),
+  },
+  bin: { name: 'Litter bin', size: 'Ø 0.5', w: 0.5, d: 0.5, colour: '#3f6b4f', parts: (c) => [cyl([0, 0.45, 0], [0.5, 0.9, 0.5], c), cyl([0, 0.92, 0], [0.54, 0.05, 0.54], '#3b3d40')] },
+
+  // ----- signs -----
+  streetsign: {
+    name: 'Street name sign', size: '2.8 high', w: 1, d: 0.1, colour: '#f5f5f0',
+    parts: (c) => [cyl([0, 1.4, 0], [0.07, 2.8, 0.07], '#7a7f85'), box([0, 2.6, 0.05], [1.0, 0.24, 0.03], '#26292c'), box([0, 2.6, 0.07], [0.94, 0.18, 0.02], c)],
+  },
+  trafficsign: {
+    name: 'Traffic sign', size: '2.5 high', w: 0.6, d: 0.1, colour: '#c8102e',
+    parts: (c) => [cyl([0, 1.25, 0], [0.07, 2.5, 0.07], '#7a7f85'), cyl([0, 2.2, 0.05], [0.6, 0.03, 0.6], c, { r: [PI / 2, 0, 0] }), cyl([0, 2.2, 0.07], [0.44, 0.02, 0.44], '#f5f5f0', { r: [PI / 2, 0, 0] })],
+  },
+  signpost: {
+    name: 'Wayfinding sign', size: '2.6 high, 2 arrows', w: 1.4, d: 1.4, colour: '#0047ab',
+    parts: (c) => [
+      cyl([0, 1.3, 0], [0.09, 2.6, 0.09], '#4a4d52'),
+      box([0.4, 2.3, 0], [0.8, 0.2, 0.03], c),
+      box([0, 1.95, 0.4], [0.03, 0.2, 0.8], c),
+    ],
+  },
+  infoboard: {
+    name: 'Info board', size: '1.2 × 2', w: 1.2, d: 0.2, colour: '#f2efe6',
+    parts: (c) => [box([-0.55, 1, 0], [0.08, 2, 0.08], '#4a4d52'), box([0.55, 1, 0], [0.08, 2, 0.08], '#4a4d52'), box([0, 1.45, 0], [1.1, 0.9, 0.04], c), box([0, 1.95, 0.05], [1.3, 0.06, 0.2], '#4a4d52')],
+  },
 }
+
+// The groups the Add elements palette shows them in.
+export const ELEMENT_GROUPS = [
+  ['Build', ['module', 'half', 'deck', 'stairs', 'ramp', 'bridge', 'bridgelegs', 'wall', 'shade', 'pergola', 'parasol']],
+  ['Transport and people', ['tram', 'tramtrack', 'tramstop', 'bus', 'car', 'person']],
+  ['Landscape', ['tree', 'smalltree', 'pine', 'bush', 'hedge', 'planter', 'flowers', 'lawn', 'paving', 'pond', 'boulder']],
+  ['Street furniture', ['bench', 'table', 'lamp', 'bollard', 'bikerack', 'bin']],
+  ['Signs', ['streetsign', 'trafficsign', 'signpost', 'infoboard']],
+]
 // Height of each element in metres, used for sizes, stacking and connect points.
-const HEIGHTS = { module: 3, half: 3, deck: 0.3, stairs: 3, shade: 3.4, pergola: 3.08, parasol: 2.75, tree: 6.1, planter: 0.76, bench: 0.95, table: 0.78, wall: 2.4, lamp: 4.05, person: 1.71, car: 1.4, bridge: 1.15, bridgelegs: 3.95, ramp: 3 }
+const HEIGHTS = { module: 3, half: 3, deck: 0.3, stairs: 3, shade: 3.4, pergola: 3.08, parasol: 2.75, tree: 6.1, planter: 0.76, bench: 0.95, table: 0.78, wall: 2.4, lamp: 4.05, person: 1.71, car: 1.4, bridge: 1.15, bridgelegs: 3.95, ramp: 3,
+  tram: 4.03, tramtrack: 0.09, tramstop: 3.0, bus: 3.1, pine: 7, smalltree: 3.9, bush: 1.2, hedge: 1.2, flowers: 0.57, lawn: 0.04, paving: 0.04, pond: 0.04, boulder: 0.7,
+  bollard: 0.9, bikerack: 0.88, bin: 0.95, streetsign: 2.8, trafficsign: 2.5, signpost: 2.6, infoboard: 2.0 }
 for (const k in KINDS) KINDS[k].h = HEIGHTS[k]
 export const KIND_IDS = Object.keys(KINDS).filter((k) => !KINDS[k].hidden)
 
